@@ -8,6 +8,9 @@ import { getAuthToken } from "../utils/authHelpers"; // small helper to parse lo
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
+if (import.meta.env.DEV) {
+  console.log("API_BASE_URL:", import.meta.env.VITE_API_BASE_URL);
+}
 // Create a single Axios instance for the entire app.
 export const api = axios.create({
   baseURL: API_BASE_URL,
