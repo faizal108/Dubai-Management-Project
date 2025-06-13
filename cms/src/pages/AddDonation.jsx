@@ -182,10 +182,16 @@ const AddDonation = ({ foundationId }) => {
         donationReceived: form.donationReceived,
       };
 
+      console.log("Submitting donation payload:", payload);
+      
       if (editId) {
+        console.log("Updating donation with ID:", editId);
+        
         await updateDonation(editId, payload);
         toast.success("Donation updated.");
       } else {
+        console.log("Adding new donation");
+        
         await addDonation(payload);
         toast.success("Donation added.");
       }

@@ -22,8 +22,8 @@ const ENDPOINTS = {
   fetchDonationsByPan: (pan) => `${DONOR_BASE}/fetchDonationByPan?pan=${pan}`,
 
   // DONATION
-  getAllDonations: () => `${DONATION_BASE}/`,
-  addDonation: (pageNo, pageSize) => `${DONATION_BASE}/?pageNo=${pageNo}&pageSize=${pageSize}`,
+  getAllDonations: (pageNo, pageSize) => `${DONATION_BASE}/?pageNo=${pageNo}&pageSize=${pageSize}`,
+  addDonation: () => `${DONATION_BASE}/`,
   getDonationById: (donationId) => `${DONATION_BASE}/${donationId}`,
   updateDonation: (donationId) => `${DONATION_BASE}/${donationId}`,
   deleteDonation: (donationId) => `${DONATION_BASE}/${donationId}`,

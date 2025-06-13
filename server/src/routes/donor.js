@@ -1,13 +1,7 @@
 import { Router } from "express";
 import authenticate from "../middleware/authenticate.js";
 import authorize from "../middleware/authorize.js";
-import { validate } from "../middleware/validate.js";
-import {
-  createDonorSchema,
-  updateDonorSchema,
-  paginationSchema,
-  panQuerySchema,
-} from "../schemas/donorSchemas.js";
+
 import {
   createDonor,
   listDonors,
@@ -27,14 +21,12 @@ router.use(authenticate);
 router.get(
   "/existByPan",
   authorize(["admin", "user"]),
-  validate(panQuerySchema, "query"),
   isExistByPan
 );
 
 router.get(
   "/fetchDonationByPan",
   authorize(["admin", "user"]),
-  validate(panQuerySchema, "query"),
   fetchDonationByPan
 );
 
@@ -42,7 +34,6 @@ router.get(
 router.get(
   "/",
   authorize(["admin", "user"]),
-  validate(paginationSchema, "query"),
   listDonors
 );
 
@@ -50,7 +41,6 @@ router.get(
 router.post(
   "/",
   authorize(["admin", "user"]),
-  validate(createDonorSchema, "body"),
   createDonor
 );
 
@@ -61,7 +51,6 @@ router.get("/:id", authorize(["admin", "user"]), getDonor);
 router.put(
   "/:id",
   authorize(["admin", "user"]),
-  validate(updateDonorSchema, "body"),
   updateDonor
 );
 

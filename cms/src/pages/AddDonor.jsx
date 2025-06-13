@@ -46,7 +46,9 @@ const AddDonor = () => {
     setIsFetching(true);
     try {
       const data = await getAllDonors();
-      setDonors(data);
+      console.log("Fetched donors:", data);
+      
+      setDonors(data.donors || []);
     } catch (err) {
       console.error("Fetch donors error:", err);
     } finally {
@@ -373,7 +375,7 @@ const AddDonor = () => {
                   </td>
                 </tr>
               ) : (
-                donors.map((donor) => (
+                donors?.map((donor) => (
                   <tr
                     key={donor.id}
                     className="border-t group hover:bg-gray-50"
