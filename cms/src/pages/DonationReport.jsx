@@ -52,22 +52,22 @@ const DonationReport = () => {
 
   const csvLinkRef = useRef();
 
+  const handleLoadData = async () => {
+    setIsFetching(true);
+    try {
+      const resp = await getAllDonations();
+      setDonations(resp.data || []);
+      setFiltered(resp.data || []);
+    } catch (err) {
+      console.error("Error loading donations:", err);
+      toast.error("Failed to load donation data.");
+    } finally {
+      setIsFetching(false);
+    }
+  };
   // Fetch from API once on mount
   useEffect(() => {
-    const load = async () => {
-      setIsFetching(true);
-      try {
-        const resp = await getAllDonations();
-        setDonations(resp.data || []);
-        setFiltered(resp.data || []);
-      } catch (err) {
-        console.error("Error loading donations:", err);
-        toast.error("Failed to load donation data.");
-      } finally {
-        setIsFetching(false);
-      }
-    };
-    load();
+    handleLoadData();    
   }, []);
 
   // Filtering logic
@@ -163,39 +163,126 @@ const DonationReport = () => {
   };
 
   // Print handler with progress
+  // const handlePrint = async () => {
+  //   if (selectedIds.size === 0) {
+  //     toast.info("Please select at least one record to print.");
+  //     return;
+  //   }
+  //   const records = donations.filter((d) => selectedIds.has(d.id));
+  //   setPrintProgress({ done: 0, total: records.length });
+
+  //   for (let i = 0; i < records.length; i++) {
+  //     const d = records[i];
+  //     const doc = new jsPDF({ orientation: "landscape" });
+  //     doc.setFontSize(14);
+  //     doc.text(`Donor: ${d.donor?.fullName || "-"}`, 20, 30);
+  //     doc.text(`PAN: ${d.donor?.pan}`, 60, 30);
+  //     doc.text(`Amount: ₹${d.amount?.toFixed(2)}`, 60, 40);
+  //     doc.text(`Donation Date: ${d.donationDate}`, 60, 50);
+  //     doc.text(`Transaction Date: ${d.transactionDate || "-"}`, 60, 60);
+  //     doc.text(`Status: ${d.donationReceived}`, 60, 70);
+  //     doc.text(`Printed: ${d.isPrinted ? "Yes" : "No"}`, 60, 80);
+  //     doc.autoPrint();
+
+  //     // update printed status via API
+  //     try {
+  //       await updatePrintStatus(d.id);
+  //     } catch (e) {
+  //       console.error("Failed to update print status", e);
+  //       toast.error("Failed to update print status");
+  //     }
+
+  //     setPrintProgress((prev) => ({ done: prev.done + 1, total: prev.total }));
+  //     window.open(doc.output("bloburl"), "_blank");
+  //   }
+  //   toast.success("Print job completed");
+  // };
+
   const handlePrint = async () => {
     if (selectedIds.size === 0) {
       toast.info("Please select at least one record to print.");
       return;
     }
-    const records = donations.filter((d) => selectedIds.has(d.id));
+
+    // Only print RECEIVED donations
+    const records = donations.filter(
+      (d) => selectedIds.has(d.id) && d.donationReceived === "RECEIVED"
+    );
+    if (records.length === 0) {
+      toast.error("No RECEIVED donations selected for printing.");
+      return;
+    }
+
     setPrintProgress({ done: 0, total: records.length });
 
     for (let i = 0; i < records.length; i++) {
       const d = records[i];
-      const doc = new jsPDF({ orientation: "landscape" });
-      doc.setFontSize(14);
-      doc.text(`Donor: ${d.donor?.fullName || "-"}`, 20, 30);
-      doc.text(`PAN: ${d.donor?.pan}`, 60, 30);
-      doc.text(`Amount: ₹${d.amount?.toFixed(2)}`, 60, 40);
-      doc.text(`Donation Date: ${d.donationDate}`, 60, 50);
-      doc.text(`Transaction Date: ${d.transactionDate || "-"}`, 60, 60);
-      doc.text(`Status: ${d.donationReceived}`, 60, 70);
-      doc.text(`Printed: ${d.isPrinted ? "Yes" : "No"}`, 60, 80);
-      doc.autoPrint();
 
-      // update printed status via API
+      // 1) Build HTML snippet for this receipt
+      const content = `
+        <div style="font-family: sans-serif; margin: 40px;">
+          <h2>Donation Receipt</h2>
+          <p><strong>Donor:</strong> ${d.donor?.fullName || "-"}</p>
+          <p><strong>PAN:</strong> ${d.donor?.pan || "-"}</p>
+          <p><strong>Amount:</strong> ₹${d.amount?.toFixed(2)}</p>
+          <p><strong>Donation Date:</strong> ${d.donationDate}</p>
+          <p><strong>Transaction Date:</strong> ${d.transactionDate || "-"}</p>
+          <p><strong>Status:</strong> ${d.donationReceived}</p>
+        </div>
+      `;
+
+      // 2) Inject HTML into a hidden iframe
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "absolute";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "none";
+      document.body.appendChild(iframe);
+
+      const doc = iframe.contentWindow.document;
+      doc.open();
+      doc.write(`
+        <html>
+          <head>
+            <title>Print Receipt</title>
+            <style>
+              @media print {
+                body { margin: 0; }
+                h2 { margin-bottom: 16px; }
+              }
+            </style>
+          </head>
+          <body>${content}</body>
+        </html>
+      `);
+      doc.close();
+
+      // 3) Trigger native print dialog, then wait a moment
+      await new Promise((resolve) => {
+        iframe.onload = () => {
+          iframe.contentWindow.focus();
+          iframe.contentWindow.print();
+          setTimeout(resolve, 500); // ensure dialog opens
+        };
+      });
+
+      // 4) Cleanup iframe & update backend status
+      document.body.removeChild(iframe);
       try {
         await updatePrintStatus(d.id);
+        handleLoadData();    
       } catch (e) {
         console.error("Failed to update print status", e);
-        toast.error("Failed to update print status");
+        toast.error("Failed to update print status for one record.");
       }
 
-      setPrintProgress((prev) => ({ done: prev.done + 1, total: prev.total }));
-      window.open(doc.output("bloburl"), "_blank");
+      setPrintProgress((prev) => ({
+        done: prev.done + 1,
+        total: prev.total,
+      }));
     }
-    toast.success("Print job completed");
+
+    toast.success("All selected receipts have been sent to print.");
   };
 
   return (
@@ -328,9 +415,7 @@ const DonationReport = () => {
                   >
                     {col.label}
                     {sortConfig.key === col.key && (
-                      <span>
-                        {sortConfig.direction === "asc" ? "▲" : "▼"}
-                      </span>
+                      <span>{sortConfig.direction === "asc" ? "▲" : "▼"}</span>
                     )}
                   </th>
                 ))}
