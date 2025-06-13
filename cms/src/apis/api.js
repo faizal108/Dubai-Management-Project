@@ -6,11 +6,8 @@ import "react-toastify/dist/ReactToastify.css";
 
 import { getAuthToken } from "../utils/authHelpers"; // small helper to parse localStorage auth
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = "https://node-server-production-c42d.up.railway.app";
 
-if (import.meta.env) {
-  console.log("API_BASE_URL:", import.meta.env.VITE_API_BASE_URL);
-}
 // Create a single Axios instance for the entire app.
 export const api = axios.create({
   baseURL: API_BASE_URL,
