@@ -1,9 +1,9 @@
 import { api } from "./api";
 
 const API_VERSION = "v1";
-const AUTH_BASE = `/auth`;
-const DONOR_BASE = `/donors`;
-const DONATION_BASE = `/donations`;
+const AUTH_BASE = `/api/v1/auth`;
+const DONOR_BASE = `/api/v1/donors`;
+const DONATION_BASE = `/api/v1/donations`;
 
 const ENDPOINTS = {
   // AUTH & USER
