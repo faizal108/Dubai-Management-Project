@@ -1,11 +1,10 @@
 // src/index.js
-import 'dotenv/config';                    // auto-load .env
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/auth.js';
 import donorRoutes from './routes/donor.js'; 
 import donationRoutes from './routes/donation.js';
-// import errorHandler from './middleware/errorHandler.js'; // if you added it
 
 import { PrismaClient } from '@prisma/client';
 

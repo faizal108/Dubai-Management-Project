@@ -13,7 +13,7 @@ import {
   ArrowPathIcon,
 } from "@heroicons/react/24/outline";
 import { toast } from "react-toastify";
-import { getAllDonations } from "../apis/endpoints";
+import { getAllDonations, updatePrintStatus } from "../apis/endpoints";
 
 // Debounce helper
 function debounce(fn, delay) {
@@ -26,11 +26,14 @@ function debounce(fn, delay) {
   return debounced;
 }
 
-const columns = [
+const initialColumns = [
   { key: "donorName", label: "Donor Name" },
+  { key: "pan", label: "PAN Number" },
   { key: "amount", label: "Amount" },
   { key: "donationDate", label: "Donation Date" },
+  { key: "transactionDate", label: "Transaction Date" },
   { key: "donationReceived", label: "Status" },
+  { key: "isPrinted", label: "Receipt Printed" },
 ];
 
 const DonationReport = () => {
@@ -38,14 +41,14 @@ const DonationReport = () => {
   const [donations, setDonations] = useState([]);
   const [filtered, setFiltered] = useState([]);
   const [isFetching, setIsFetching] = useState(false);
-
   const [search, setSearch] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: null });
+  const [printProgress, setPrintProgress] = useState({ done: 0, total: 0 });
 
   const csvLinkRef = useRef();
 
@@ -54,7 +57,7 @@ const DonationReport = () => {
     const load = async () => {
       setIsFetching(true);
       try {
-        const resp = await getAllDonations(); // expects { data: [...] }
+        const resp = await getAllDonations();
         setDonations(resp.data || []);
         setFiltered(resp.data || []);
       } catch (err) {
@@ -69,14 +72,16 @@ const DonationReport = () => {
 
   // Filtering logic
   const applyFilter = useCallback(() => {
-    const out = donations.filter((d) => {
+    let out = donations.filter((d) => {
       const inRange =
         (!startDate || new Date(d.donationDate) >= new Date(startDate)) &&
         (!endDate || new Date(d.donationDate) <= new Date(endDate));
       const matchesSearch = Object.values({
         donorName: d.donor?.fullName || "",
+        pan: d.donor?.pan || "",
         amount: d.amount?.toString() || "",
         donationDate: d.donationDate || "",
+        transactionDate: d.transactionDate || "",
         donationReceived: d.donationReceived || "",
       })
         .join(" ")
@@ -84,24 +89,45 @@ const DonationReport = () => {
         .includes(search.toLowerCase());
       return inRange && matchesSearch;
     });
+    // sorting
+    if (sortConfig.key) {
+      out = [...out].sort((a, b) => {
+        const aVal =
+          a[sortConfig.key] || (a.donor ? a.donor[sortConfig.key] : "");
+        const bVal =
+          b[sortConfig.key] || (b.donor ? b.donor[sortConfig.key] : "");
+        if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
     setFiltered(out);
     setPage(1);
-  }, [donations, search, startDate, endDate]);
+  }, [donations, search, startDate, endDate, sortConfig]);
 
   const debouncedFilter = useCallback(debounce(applyFilter, 300), [
     applyFilter,
   ]);
-
   useEffect(() => {
     debouncedFilter();
     return () => debouncedFilter.cancel();
-  }, [search, startDate, endDate, debouncedFilter]);
+  }, [search, startDate, endDate, sortConfig, debouncedFilter]);
+
+  // Sorting handler
+  const handleSort = (key) => {
+    let direction = "asc";
+    if (sortConfig.key === key && sortConfig.direction === "asc") {
+      direction = "desc";
+    }
+    setSortConfig({ key, direction });
+  };
 
   // Clear filters
   const clearAll = () => {
     setSearch("");
     setStartDate("");
     setEndDate("");
+    setSortConfig({ key: null, direction: null });
     setFiltered(donations);
     setPage(1);
   };
@@ -136,35 +162,76 @@ const DonationReport = () => {
     csvLinkRef.current.link.click();
   };
 
-  // Print via jsPDF in landscape
-  const handlePrint = () => {
+  // Print handler with progress
+  const handlePrint = async () => {
     if (selectedIds.size === 0) {
       toast.info("Please select at least one record to print.");
       return;
     }
-    // Build a single PDF with one page per selected record
-    const doc = new jsPDF({ orientation: "landscape" });
-    const selectedRecords = donations.filter((d) => selectedIds.has(d.id));
-    selectedRecords.forEach((d, idx) => {
-      if (idx > 0) {
-        doc.addPage();
-      }
+    const records = donations.filter((d) => selectedIds.has(d.id));
+    setPrintProgress({ done: 0, total: records.length });
+
+    for (let i = 0; i < records.length; i++) {
+      const d = records[i];
+      const doc = new jsPDF({ orientation: "landscape" });
       doc.setFontSize(14);
       doc.text(`Donor: ${d.donor?.fullName || "-"}`, 20, 30);
+      doc.text(`PAN: ${d.donor?.pan}`, 60, 30);
       doc.text(`Amount: ₹${d.amount?.toFixed(2)}`, 60, 40);
-      doc.text(`Date: ${d.donationDate}`, 40, 50);
-      doc.text(
-        `Status: ${d.donationReceived ? "Received" : "Pending"}`,
-        doc.internal.pageSize.getWidth() - 60,
-        doc.internal.pageSize.getHeight() - 30
-      );
-    });
-    doc.autoPrint();
-    window.open(doc.output("bloburl"), "_blank");
+      doc.text(`Donation Date: ${d.donationDate}`, 60, 50);
+      doc.text(`Transaction Date: ${d.transactionDate || "-"}`, 60, 60);
+      doc.text(`Status: ${d.donationReceived}`, 60, 70);
+      doc.text(`Printed: ${d.isPrinted ? "Yes" : "No"}`, 60, 80);
+      doc.autoPrint();
+
+      // update printed status via API
+      try {
+        await updatePrintStatus(d.id);
+      } catch (e) {
+        console.error("Failed to update print status", e);
+        toast.error("Failed to update print status");
+      }
+
+      setPrintProgress((prev) => ({ done: prev.done + 1, total: prev.total }));
+      window.open(doc.output("bloburl"), "_blank");
+    }
+    toast.success("Print job completed");
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
+      {/* Progress Indicator */}
+      {printProgress.total > 0 && printProgress.done < printProgress.total && (
+        <div className="fixed bottom-4 right-4 bg-white p-4 rounded-full shadow-lg flex flex-col items-center">
+          <svg className="animate-spin h-12 w-12 mb-2" viewBox="0 0 24 24">
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+              fill="none"
+            />
+            <circle
+              className="opacity-75"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+              strokeDasharray={`${
+                (printProgress.done / printProgress.total) * 62.8
+              } 62.8"`}
+              fill="none"
+            />
+          </svg>
+          <div>
+            {printProgress.done}/{printProgress.total} Printed
+          </div>
+        </div>
+      )}
+
       {/* Export & Print Controls */}
       <div className="flex justify-end gap-4">
         <button
@@ -192,7 +259,6 @@ const DonationReport = () => {
         <h2 className="text-xl font-semibold text-gray-700">
           Donation Report List
         </h2>
-
         {/* Filters */}
         <div className="flex flex-wrap items-end gap-4">
           <div>
@@ -254,9 +320,18 @@ const DonationReport = () => {
                     onChange={toggleSelectAll}
                   />
                 </th>
-                {columns.map((col) => (
-                  <th key={col.key} className="px-4 py-2">
+                {initialColumns.map((col) => (
+                  <th
+                    key={col.key}
+                    className="px-4 py-2 cursor-pointer select-none"
+                    onClick={() => handleSort(col.key)}
+                  >
                     {col.label}
+                    {sortConfig.key === col.key && (
+                      <span>
+                        {sortConfig.direction === "asc" ? "▲" : "▼"}
+                      </span>
+                    )}
                   </th>
                 ))}
               </tr>
@@ -265,7 +340,7 @@ const DonationReport = () => {
               {paged.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={columns.length + 1}
+                    colSpan={initialColumns.length + 1}
                     className="p-4 text-center text-gray-400"
                   >
                     No records found.
@@ -282,26 +357,18 @@ const DonationReport = () => {
                       />
                     </td>
                     <td className="px-4 py-2">{d.donor?.fullName || "-"}</td>
+                    <td className="px-4 py-2">{d.donor?.pan}</td>
                     <td className="px-4 py-2">₹{d.amount?.toFixed(2)}</td>
                     <td className="px-4 py-2">{d.donationDate}</td>
-                    <td className="px-4 py-2">
-                      <span
-                        className={`px-2 py-1 rounded text-xs font-medium ${
-                          d.donationReceived
-                            ? "bg-green-100 text-green-700"
-                            : "bg-red-100 text-red-700"
-                        }`}
-                      >
-                        {d.donationReceived ? "Received" : "Pending"}
-                      </span>
-                    </td>
+                    <td className="px-4 py-2">{d.transactionDate || "-"}</td>
+                    <td className="px-4 py-2">{d.donationReceived}</td>
+                    <td className="px-4 py-2">{d.isPrinted ? "Yes" : "No"}</td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
         </div>
-
         {/* Pagination */}
         <div className="flex items-center justify-between mt-4 text-sm text-gray-600">
           <div>

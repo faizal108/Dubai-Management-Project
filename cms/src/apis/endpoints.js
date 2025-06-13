@@ -28,6 +28,8 @@ const ENDPOINTS = {
   updateDonation: (donationId) => `${DONATION_BASE}/${donationId}`,
   deleteDonation: (donationId) => `${DONATION_BASE}/${donationId}`,
   searchDonation: (fullName, pan) => `${DONATION_BASE}/search?fullName=${fullName}&pan=${pan}`,
+  updatePrintStatus: (donationId) => `${DONATION_BASE}/${donationId}/markPrinted`,
+
 
   // (Feel free to add more resource-specific URIs here)
 };
@@ -62,3 +64,5 @@ export const deleteDonation = (donationId) =>
   api.delete(ENDPOINTS.deleteDonation(donationId));
 export const searchDonation = (fullName, pan) =>
   api.delete(ENDPOINTS.deleteDonation(fullName, pan));
+export const updatePrintStatus = (donationId) =>
+  api.put(ENDPOINTS.updatePrintStatus(donationId));

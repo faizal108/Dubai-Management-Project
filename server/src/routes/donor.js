@@ -1,7 +1,13 @@
-// server/src/routes/donor.js
-import { Router } from 'express';
-import authenticate from '../middleware/authenticate.js';
-import authorize from '../middleware/authorize.js';
+import { Router } from "express";
+import authenticate from "../middleware/authenticate.js";
+import authorize from "../middleware/authorize.js";
+import { validate } from "../middleware/validate.js";
+import {
+  createDonorSchema,
+  updateDonorSchema,
+  paginationSchema,
+  panQuerySchema,
+} from "../schemas/donorSchemas.js";
 import {
   createDonor,
   listDonors,
@@ -10,33 +16,60 @@ import {
   removeDonor,
   isExistByPan,
   fetchDonationByPan,
-} from '../controllers/donorController.js';
+  listTrashedDonors,
+  restoreDonor,
+} from "../controllers/donorController.js";
 
 const router = Router();
-
-// All donor routes require a valid JWT:
 router.use(authenticate);
 
-// → check donor exist by pan (all roles)
-router.get('/existByPan', authorize(['admin', 'user']), isExistByPan);
+// Existence check by PAN
+router.get(
+  "/existByPan",
+  authorize(["admin", "user"]),
+  validate(panQuerySchema, "query"),
+  isExistByPan
+);
 
-router.get('/fetchDonationByPan', authorize(['admin', 'user']), fetchDonationByPan);
+router.get(
+  "/fetchDonationByPan",
+  authorize(["admin", "user"]),
+  validate(panQuerySchema, "query"),
+  fetchDonationByPan
+);
 
-// GET    /api/donors       → listDonors (all roles)
-router.get('/', authorize(['admin', 'user']), listDonors);
+// List + Pagination
+router.get(
+  "/",
+  authorize(["admin", "user"]),
+  validate(paginationSchema, "query"),
+  listDonors
+);
 
-// POST   /api/donors       → createDonor (admin, staff)
-router.post('/', authorize(['admin', 'user']), createDonor);
+// Create
+router.post(
+  "/",
+  authorize(["admin", "user"]),
+  validate(createDonorSchema, "body"),
+  createDonor
+);
 
-// GET    /api/donors/:id   → getDonor (all roles)
-router.get('/:id', authorize(['admin', 'user']), getDonor);
+// Read single
+router.get("/:id", authorize(["admin", "user"]), getDonor);
 
-// PUT    /api/donors/:id   → updateDonor (admin, staff)
-router.put('/:id', authorize(['admin', 'user']), updateDonor);
+// Update
+router.put(
+  "/:id",
+  authorize(["admin", "user"]),
+  validate(updateDonorSchema, "body"),
+  updateDonor
+);
 
-// DELETE /api/donors/:id   → removeDonor (admin only)
-router.delete('/:id', authorize(['admin']), removeDonor);
+// Soft Delete
+router.delete("/:id", authorize(["admin"]), removeDonor);
 
-
+// Trashed & Restore
+router.get("/trashed", authorize(["admin"]), listTrashedDonors);
+router.post("/:id/restore", authorize(["admin"]), restoreDonor);
 
 export default router;

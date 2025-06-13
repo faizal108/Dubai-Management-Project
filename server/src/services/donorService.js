@@ -1,5 +1,5 @@
 // server/src/services/donorService.js
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -18,15 +18,24 @@ export async function createDonor({ foundationId, donorData }) {
 /**
  * Get all non-deleted donors for a foundation, with optional filters
  */
-export async function getDonors({ foundationId, filters = {} }) {
-  return prisma.donor.findMany({
-    where: {
-      foundationId,
-      isDeleted: false,
-      ...filters,
-    },
-    orderBy: { createdAt: 'asc' },
+export async function getDonors({
+  foundationId,
+  pageNo = 0,
+  pageSize = 20,
+  filters = {},
+}) {
+  const where = { foundationId, isDeleted: false, ...filters };
+
+  const total = await prisma.donor.count({ where });
+
+  const donors = await prisma.donor.findMany({
+    where,
+    orderBy: { createdAt: "asc" },
+    skip: pageNo * pageSize,
+    take: pageSize,
   });
+
+  return { donors, total };
 }
 
 /**
@@ -47,7 +56,7 @@ export async function getDonorById({ foundationId, donorId }) {
  */
 export async function updateDonor({ foundationId, donorId, donorData }) {
   const existing = await getDonorById({ foundationId, donorId });
-  if (!existing) throw new Error('Donor not found or already deleted');
+  if (!existing) throw new Error("Donor not found or already deleted");
 
   // Ensure foundationId is not accidentally changed
   const { foundationId: _, ...safeData } = donorData;
@@ -63,7 +72,7 @@ export async function updateDonor({ foundationId, donorId, donorData }) {
  */
 export async function deleteDonor({ foundationId, donorId }) {
   const existing = await getDonorById({ foundationId, donorId });
-  if (!existing) throw new Error('Donor not found or already deleted');
+  if (!existing) throw new Error("Donor not found or already deleted");
 
   return prisma.donor.update({
     where: { id: donorId },
@@ -77,7 +86,7 @@ export async function isExistByPan(foundationId, pan) {
       foundationId: foundationId,
       pan: {
         equals: pan.trim().toUpperCase(),
-        mode: 'insensitive',
+        mode: "insensitive",
       },
       isDeleted: false,
     },
@@ -92,10 +101,33 @@ export async function getDonationsByDonorId(foundationId, donorId) {
       isDeleted: false,
     },
     orderBy: {
-      createdAt: 'desc',
+      createdAt: "desc",
     },
     include: {
       donor: true,
     },
   });
+}
+
+export async function getTrashedDonors(foundationId) {
+  return prisma.donor.findMany({
+    where: { foundationId, isDeleted: true },
+    orderBy: { updatedAt: "desc" },
+  });
+}
+
+export async function restoreDonor({ foundationId, donorId }) {
+  const existing = await prisma.donor.findFirst({
+    where: { id: donorId, foundationId, isDeleted: true },
+  });
+  if (!existing) throw new Error("Donor not found or not deleted");
+
+  return prisma.donor.update({
+    where: { id: donorId },
+    data: { isDeleted: false },
+  });
+}
+
+export async function countDonors(foundationId) {
+  return prisma.donor.count({ where: { foundationId, isDeleted: false } });
 }

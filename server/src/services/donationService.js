@@ -1,5 +1,5 @@
 // server/src/services/donationService.js
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -18,13 +18,13 @@ export async function createDonation({ foundationId, payload }) {
     },
   });
   if (!donor) {
-    throw new Error('Donor not found or does not belong to this foundation');
+    throw new Error("Donor not found or does not belong to this foundation");
   }
 
   // 2. Enforce transactionDate if donationReceived === "RECEIVED"
-  if (payload.donationReceived === 'RECEIVED' && !payload.transactionDate) {
+  if (payload.donationReceived === "RECEIVED" && !payload.transactionDate) {
     throw new Error(
-      'transactionDate is required when donation is marked RECEIVED'
+      "transactionDate is required when donation is marked RECEIVED"
     );
   }
 
@@ -39,7 +39,7 @@ export async function createDonation({ foundationId, payload }) {
       ifsc: payload.ifsc,
       donationDate: payload.donationDate || undefined, // defaults to now() if omitted
       transactionDate: payload.transactionDate || null,
-      donationReceived: payload.donationReceived || 'PENDING',
+      donationReceived: payload.donationReceived || "PENDING",
       foundation: { connect: { id: foundationId } },
     },
     include: {
@@ -68,7 +68,7 @@ export async function getDonations({
   // 2) Fetch this page
   const donations = await prisma.donation.findMany({
     where,
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: "desc" },
     skip: pageNo * pageSize,
     take: pageSize,
     include: {
@@ -107,16 +107,16 @@ export async function updateDonation({
   // 1. Verify donation exists & belongs to this foundation
   const existing = await getDonationById({ foundationId, donationId });
   if (!existing) {
-    throw new Error('Donation not found or is deleted');
+    throw new Error("Donation not found or is deleted");
   }
 
   // 2. If donationReceived === "RECEIVED", transactionDate must be provided
   if (
-    donationData.donationReceived === 'RECEIVED' &&
+    donationData.donationReceived === "RECEIVED" &&
     !donationData.transactionDate
   ) {
     throw new Error(
-      'transactionDate is required when donation is marked RECEIVED'
+      "transactionDate is required when donation is marked RECEIVED"
     );
   }
 
@@ -148,7 +148,7 @@ export async function deleteDonation({ foundationId, donationId }) {
   // 1. Verify donation exists & belongs to this foundation
   const existing = await getDonationById({ foundationId, donationId });
   if (!existing) {
-    throw new Error('Donation not found or is deleted');
+    throw new Error("Donation not found or is deleted");
   }
 
   // 2. Soft-delete
@@ -164,7 +164,7 @@ export async function deleteDonation({ foundationId, donationId }) {
  */
 export async function searchDonations({ foundationId, fullName, pan }) {
   if (!fullName && !pan) {
-    throw new Error('At least one of fullName or pan must be provided');
+    throw new Error("At least one of fullName or pan must be provided");
   }
 
   return prisma.donation.findMany({
@@ -174,15 +174,48 @@ export async function searchDonations({ foundationId, fullName, pan }) {
       donor: {
         is: {
           ...(fullName && {
-            fullName: { contains: fullName, mode: 'insensitive' },
+            fullName: { contains: fullName, mode: "insensitive" },
           }),
-          ...(pan && { pan: { contains: pan, mode: 'insensitive' } }),
+          ...(pan && { pan: { contains: pan, mode: "insensitive" } }),
         },
       },
     },
     include: {
       donor: true,
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function markPrintedDonation({ foundationId, donationId }) {
+  const existing = await getDonationById({ foundationId, donationId });
+  if (!existing) return null;
+
+  return prisma.donation.update({
+    where: { id: donationId },
+    data: { isPrinted: true, updatedAt: new Date() },
+    include: { donor: true },
+  });
+}
+
+export async function countDonations(foundationId) {
+  return prisma.donation.count({ where: { foundationId, isDeleted: false } });
+}
+
+export async function getTrashedDonations(foundationId) {
+  return prisma.donation.findMany({
+    where: { foundationId, isDeleted: true },
+    orderBy: { updatedAt: "desc" },
+    include: { donor: true },
+  });
+}
+
+export async function restoreDonation({ foundationId, donationId }) {
+  const existing = await getDonationById({ foundationId, donationId });
+  if (!existing) throw new Error("Not found or not deleted");
+  return prisma.donation.update({
+    where: { id: donationId },
+    data: { isDeleted: false },
+    include: { donor: true },
   });
 }

@@ -9,59 +9,90 @@ generator client {
 
 // Models
 model Foundation {
-  id        String   @id @default(cuid())
-  name      String
-  logoUrl   String?
+  id      String  @id @default(cuid())
+  name    String
+  pan     String  @unique
+  logoUrl String?
+
+  createdAt DateTime @default(now())
+  createdBy String
+  updatedAt DateTime @updatedAt
+  updatedBy String
+
   users     User[]
   donors    Donor[]
   donations Donation[]
 }
 
 model User {
-  id           String     @id @default(cuid())
-  username     String     @unique
+  id           String @id @default(cuid())
+  username     String @unique
   passwordHash String
   role         String
+
+  createdAt DateTime @default(now())
+  createdBy String
+  updatedAt DateTime @updatedAt
+  updatedBy String
+
   foundation   Foundation @relation(fields: [foundationId], references: [id])
   foundationId String
 }
 
 model Donor {
-  id           String     @id @default(cuid())
-  fullName     String
-  address1     String
-  address2     String
-  pan          String     @unique
-  country      String
-  state        String
-  city         String
-  isDeleted    Boolean    @default(false)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id        String  @id @default(cuid())
+  fullName  String
+  address1  String
+  address2  String
+  pan       String  @unique
+  country   String
+  state     String
+  city      String
+  isDeleted Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  createdBy String
+  updatedAt DateTime @updatedAt
+  updatedBy String
+
   foundation   Foundation @relation(fields: [foundationId], references: [id])
   foundationId String
   donations    Donation[]
 }
 
+enum DonationType {
+  CASH
+  CHEQUE
+  ONLINE
+}
+
+enum DonationStatus {
+  PENDING
+  RECEIVED
+}
 
 model Donation {
-  id               String      @id @default(cuid())
-  donor            Donor       @relation(fields: [donorId], references: [id])
+  id               String         @id @default(cuid())
+  donor            Donor          @relation(fields: [donorId], references: [id])
   donorId          String
   amount           Float
-  type             String      // e.g. "CASH", "CHEQUE", "ONLINE"
+  type             DonationType
   bankName         String
-  utr              String      // now required
-  ifsc             String      // now required
-  donationDate     DateTime    @default(now())       // when donation was made (defaults to today)
-  transactionDate  DateTime?                          // optional; required if donationReceived == "RECEIVED"
-  donationReceived String      @default("PENDING")   // "RECEIVED" or "PENDING"
-  isDeleted        Boolean     @default(false)       // for soft delete
-  createdAt        DateTime    @default(now())       // auto‐timestamp on creation
-  updatedAt        DateTime    @updatedAt            // auto‐timestamp on updates
+  utr              String
+  ifsc             String
+  donationDate     DateTime       @default(now())
+  transactionDate  DateTime?
+  donationReceived DonationStatus @default(PENDING)
+  isPrinted        Boolean        @default(false)
+  isDeleted        Boolean        @default(false)
 
-  foundation       Foundation  @relation(fields: [foundationId], references: [id])
-  foundationId     String
+  createdAt DateTime @default(now())
+  createdBy String
+  updatedAt DateTime @updatedAt
+  updatedBy String
+
+  foundation   Foundation @relation(fields: [foundationId], references: [id])
+  foundationId String
 
   @@index([foundationId, donorId])
   @@index([donorId, isDeleted])
