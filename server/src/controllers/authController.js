@@ -1,14 +1,20 @@
-import * as authService from '../services/authService.js';
+import * as authService from "../services/authService.js";
 
 export const register = async (req, res) => {
   try {
     const foundationId = req.user.foundationId;
-    const user = await authService.registerUser(req.body, foundationId);
-    res.status(201).json({ message: 'User registered', user });
+    const { roles, ...rest } = req.body;
+
+    const user = await authService.registerUser(
+      { ...rest, role: roles?.[0] }, // extract first role
+      foundationId
+    );
+
+    res.status(201).json({ message: "User registered", user });
   } catch (err) {
     res
       .status(err.status || 500)
-      .json({ error: err.message || 'Server error' });
+      .json({ error: err.message || "Server error" });
   }
 };
 
@@ -19,6 +25,6 @@ export const login = async (req, res) => {
   } catch (err) {
     res
       .status(err.status || 500)
-      .json({ error: err.message || 'Server error' });
+      .json({ error: err.message || "Server error" });
   }
 };
