@@ -4,9 +4,16 @@ import authorize from "../middleware/authorize.js";
 import authenticate from "../middleware/authenticate.js";
 
 const router = Router();
-router.use(authenticate);
 
-router.post("/register", authorize(["admin"]), register);
+// ─── Public ────────────────────────────────────────────────────────────────
 router.post("/login", login);
+
+// ─── Protected ─────────────────────────────────────────────────────────────
+router.post(
+  "/register",
+  authenticate,
+  authorize(["admin"]),     
+  register                  
+);
 
 export default router;
