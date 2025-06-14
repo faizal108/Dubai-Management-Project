@@ -144,8 +144,8 @@ const Sidebar = () => {
       <nav className="flex-1 overflow-y-auto">
         <ul className="flex flex-col gap-1 p-2">
           {navItemsTop.map(({ name, icon, path, role }) => (
-            <RoleGuard allowedRoles={role}>
-              <li key={name}>
+            <RoleGuard key={name} allowedRoles={role}>
+              <li>
                 <Link
                   to={path}
                   className={`flex items-center gap-3 p-3 rounded-lg transition ${
