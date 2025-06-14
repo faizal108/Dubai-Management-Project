@@ -22,7 +22,6 @@ const CreateUser = lazy(() => import("./pages/CreateUser"));
 const Unauthorized = lazy(() => import("./pages/Unauthorized"));
 const ViewDonations = lazy(() => import("./pages/ViewDonations"));
 
-
 const App = () => {
   return (
     <AuthProvider>
@@ -45,11 +44,46 @@ const App = () => {
               {/* if we land on “/”, redirect to /dashboard */}
               <Route index element={<Navigate to="/dashboard" />} />
 
-              <Route path="dashboard" element={<Dashboard />} />
-              <Route path="donor/add" element={<AddDonor />} />
-              <Route path="donation/add" element={<AddDonation />} />
-              <Route path="donation/search" element={<SearchDonation />} />
-              <Route path="reports" element={<DonationReport />} />
+              <Route
+                path="dashboard"
+                element={
+                  <PrivateRoute roles={["admin"]}>
+                    <Dashboard />
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="donor/add"
+                element={
+                  <PrivateRoute roles={["admin", "user"]}>
+                    <AddDonor />
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="donation/add"
+                element={
+                  <PrivateRoute roles={["admin", "user"]}>
+                    <AddDonation />
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="donation/search"
+                element={
+                  <PrivateRoute roles={["admin", "user"]}>
+                    <SearchDonation />
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="reports"
+                element={
+                  <PrivateRoute roles={["admin"]}>
+                    <DonationReport />
+                  </PrivateRoute>
+                }
+              />
 
               {/* Only admin can createUser */}
               <Route

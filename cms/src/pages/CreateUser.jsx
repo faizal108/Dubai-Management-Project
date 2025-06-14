@@ -1,10 +1,11 @@
 import React, { useState } from "react";
+import { userRegister } from "../apis/endpoints";
+import { toast } from "react-toastify";
 
-const roleOptions = ["ADMIN", "MANAGER", "STAFF", "VIEWER"]; // You can fetch this from API as well
+const roleOptions = ["admin", "user"];
 
 const initialForm = {
   username: "",
-  email: "",
   password: "",
   roles: [],
   desc: "",
@@ -32,13 +33,12 @@ const CreateUser = () => {
   const validate = () => {
     const err = {};
     if (!form.username.trim()) err.username = "Username is required";
-    if (!form.email.trim()) err.email = "Email is required";
     if (!form.password.trim()) err.password = "Password is required";
     if (form.roles.length === 0) err.roles = "At least one role is required";
     return err;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const validationErrors = validate();
     if (Object.keys(validationErrors).length > 0) {
@@ -46,10 +46,21 @@ const CreateUser = () => {
       return;
     }
 
-    // Simulated API POST
-    setCreatedUsers((prev) => [{ id: Date.now(), ...form }, ...prev]);
-    setForm(initialForm);
-    setErrors({});
+    const payload = {
+      username: form.username.trim(),
+      password: form.password.trim(),
+      roles: form.roles,
+    }
+
+    try{
+      await userRegister(payload);
+      toast.success("User created successfully!");
+    } catch (error) {
+      console.error("Error creating user:", error);
+      toast.error("Failed to create user. Please try again.");
+      setErrors({ form: "Failed to create user. Please try again." });
+      return;
+    }
   };
 
   return (
@@ -70,19 +81,6 @@ const CreateUser = () => {
             />
             {errors.username && (
               <p className="text-red-500 text-sm">{errors.username}</p>
-            )}
-          </div>
-          <div>
-            <input
-              type="email"
-              name="email"
-              placeholder="Email"
-              value={form.email}
-              onChange={handleChange}
-              className="w-full border px-4 py-2 rounded-lg"
-            />
-            {errors.email && (
-              <p className="text-red-500 text-sm">{errors.email}</p>
             )}
           </div>
           <div>
@@ -126,16 +124,6 @@ const CreateUser = () => {
             {errors.roles && (
               <p className="text-red-500 text-sm mt-1">{errors.roles}</p>
             )}
-          </div>
-          <div>
-            <textarea
-              name="desc"
-              placeholder="Description (optional)"
-              value={form.desc}
-              onChange={handleChange}
-              className="w-full border px-4 py-2 rounded-lg"
-              rows={3}
-            />
           </div>
           <button
             type="submit"

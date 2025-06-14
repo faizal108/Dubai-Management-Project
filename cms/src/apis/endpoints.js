@@ -8,9 +8,9 @@ const DONATION_BASE = `/api/v1/donations`;
 const ENDPOINTS = {
   // AUTH & USER
   login: () => `${AUTH_BASE}/login`,
+  registerUser: () => `${AUTH_BASE}/register`,
   getAuthDetails: (userId) => `${AUTH_BASE}/getAuthDetails?userId=${userId}`,
   getUserProfile: (userId) => `${USER_BASE}/keycloak/getUsers?userId=${userId}`,
-  createUser: () => `${USER_BASE}/create`,
 
   // DONOR
   getAllDonors: () => `${DONOR_BASE}/`,
@@ -36,6 +36,7 @@ const ENDPOINTS = {
 
 // Authentication Endpoints
 export const userlogin = (userData) => api.post(ENDPOINTS.login(), userData);
+export const userRegister = (userData) => api.post(ENDPOINTS.registerUser(), userData);
 
 // Donor Endpoints
 export const getAllDonors = () => api.get(ENDPOINTS.getAllDonors());

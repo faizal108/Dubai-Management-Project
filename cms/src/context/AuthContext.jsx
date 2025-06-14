@@ -33,7 +33,7 @@ export const AuthProvider = ({ children }) => {
   const login = async (username, password) => {
     try {
       const response = await userlogin({ username, password });
-      console.log("AuthContext login Response:", response);
+      // console.log("AuthContext login Response:", response);
 
       const { token } = response || {};
       if (!token) {

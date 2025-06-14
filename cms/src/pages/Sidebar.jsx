@@ -15,6 +15,8 @@ import {
 import { Button } from "@material-tailwind/react";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { ROLES } from "../constants/roles";
+import RoleGuard from "../components/RoleGuard";
 
 // Navigation links
 const navItemsTop = [
@@ -22,27 +24,32 @@ const navItemsTop = [
     name: "Dashboard",
     icon: <HomeIcon className="h-5 w-5" />,
     path: "/dashboard",
+    role: [ROLES.ADMIN],
   },
   {
     name: "Add Donor",
     icon: <UserPlusIcon className="h-5 w-5" />,
     path: "/donor/add",
+    role: [ROLES.USER, ROLES.ADMIN],
   },
   {
     name: "Add Donation",
     icon: <PlusCircleIcon className="h-5 w-5" />,
     path: "/donation/add",
     highlight: true,
+    role: [ROLES.USER, ROLES.ADMIN],
   },
   {
     name: "View Donations",
     icon: <EyeIcon className="h-5 w-5" />,
     path: "/view/donations",
+    role: [ROLES.USER, ROLES.ADMIN],
   },
   {
     name: "Search Donation",
     icon: <MagnifyingGlassIcon className="h-5 w-5" />,
     path: "/donation/search",
+    role: [ROLES.USER, ROLES.ADMIN],
   },
   // {
   //   name: "Donation History",
@@ -53,6 +60,7 @@ const navItemsTop = [
     name: "Reports",
     icon: <ChartBarIcon className="h-5 w-5" />,
     path: "/reports",
+    role: [ROLES.ADMIN],
   },
   // {
   //   name: "Login",
@@ -63,6 +71,7 @@ const navItemsTop = [
     name: "Create User",
     icon: <UserIcon className="h-5 w-5" />,
     path: "/createUser",
+    role: [ROLES.ADMIN],
   },
 ];
 
@@ -134,20 +143,22 @@ const Sidebar = () => {
       {/* Top Links */}
       <nav className="flex-1 overflow-y-auto">
         <ul className="flex flex-col gap-1 p-2">
-          {navItemsTop.map(({ name, icon, path }) => (
-            <li key={name}>
-              <Link
-                to={path}
-                className={`flex items-center gap-3 p-3 rounded-lg transition ${
-                  isActive(path)
-                    ? "bg-blue-100 text-blue-700 font-semibold"
-                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-                }`}
-              >
-                {icon}
-                {isOpen && <span>{name}</span>}
-              </Link>
-            </li>
+          {navItemsTop.map(({ name, icon, path, role }) => (
+            <RoleGuard allowedRoles={role}>
+              <li key={name}>
+                <Link
+                  to={path}
+                  className={`flex items-center gap-3 p-3 rounded-lg transition ${
+                    isActive(path)
+                      ? "bg-blue-100 text-blue-700 font-semibold"
+                      : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                  }`}
+                >
+                  {icon}
+                  {isOpen && <span>{name}</span>}
+                </Link>
+              </li>
+            </RoleGuard>
           ))}
         </ul>
       </nav>

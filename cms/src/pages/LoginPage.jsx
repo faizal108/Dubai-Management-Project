@@ -34,7 +34,7 @@ const LoginPage = () => {
 
     try {
       // Save token and user context
-      login(username, password)
+      await login(username, password)
         ? console.log("Login successful")
         : console.log("Login failed");
 
