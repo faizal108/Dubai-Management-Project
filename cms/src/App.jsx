@@ -11,6 +11,7 @@ import {
 import { AuthProvider } from "./context/AuthContext";
 import PrivateRoute from "./components/PrivateRoute";
 import Layout from "./components/Layout";
+import HomeRedirect from "./components/HomeRedirect";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const AddDonor = lazy(() => import("./pages/AddDonor"));
@@ -42,8 +43,7 @@ const App = () => {
               }
             >
               {/* if we land on “/”, redirect to /dashboard */}
-              <Route index element={<Navigate to="/dashboard" />} />
-
+              <Route index element={<HomeRedirect />} />
               <Route
                 path="dashboard"
                 element={
@@ -84,7 +84,6 @@ const App = () => {
                   </PrivateRoute>
                 }
               />
-
               {/* Only admin can createUser */}
               <Route
                 path="createUser"
@@ -102,7 +101,6 @@ const App = () => {
                   </PrivateRoute>
                 }
               />
-
               {/* Fallback: any unmatched protected route → /dashboard */}
               <Route path="*" element={<Navigate to="/dashboard" />} />
             </Route>
