@@ -42,7 +42,6 @@ const SearchDonation = () => {
     try {
       // backend expects zero-based page index
       const response = await getAllDonations(page - 1, pageSize);
-      console.log("Fetched donations:", response);
       setAllDonations(response.data || []);
       setTotalRecords(response.totalRecords || 0);
     } catch (err) {

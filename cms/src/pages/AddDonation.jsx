@@ -15,6 +15,8 @@ import {
   getDonationById,
   updateDonation,
 } from "../apis/endpoints";
+import RoleGuard from "../components/RoleGuard";
+import { ROLES } from "../constants/roles";
 
 const donationTypes = ["CASH", "CHEQUE", "ONLINE"];
 
@@ -182,16 +184,10 @@ const AddDonation = ({ foundationId }) => {
         donationReceived: form.donationReceived,
       };
 
-      console.log("Submitting donation payload:", payload);
-      
       if (editId) {
-        console.log("Updating donation with ID:", editId);
-        
         await updateDonation(editId, payload);
         toast.success("Donation updated.");
       } else {
-        console.log("Adding new donation");
-        
         await addDonation(payload);
         toast.success("Donation added.");
       }
@@ -479,93 +475,95 @@ const AddDonation = ({ foundationId }) => {
       </div>
 
       {/* ── RECENT DONATIONS TABLE ── */}
-      <div className="bg-white p-6 rounded-2xl shadow-md">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-700">
-            Recent Donations
-          </h2>
-          <button
-            onClick={fetchDonations}
-            disabled={fetchingDonations}
-            className="flex items-center space-x-1 text-gray-600 hover:text-gray-800"
-          >
-            <ArrowPathIcon
-              className={`h-5 w-5 ${fetchingDonations ? "animate-spin" : ""}`}
-            />
-            <span className="text-sm">
-              {fetchingDonations ? "Refreshing..." : "Refresh"}
-            </span>
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm text-left text-gray-700">
-            <thead className="bg-gray-100 text-xs uppercase text-gray-600">
-              <tr>
-                <th className="px-4 py-2">Donor Name</th>
-                <th className="px-4 py-2">PAN</th>
-                <th className="px-4 py-2">Amount</th>
-                <th className="px-4 py-2">Type</th>
-                <th className="px-4 py-2">Bank Name</th>
-                <th className="px-4 py-2">UTR / Cheque No / Trans Ref</th>
-                <th className="px-4 py-2">IFSC</th>
-                <th className="px-4 py-2">Donation Date</th>
-                <th className="px-4 py-2">Received Status</th>
-                <th className="px-4 py-2">Transaction Date</th>
-                <th className="px-4 py-2 w-20">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {donations.length === 0 && !fetchingDonations ? (
+      <RoleGuard allowedRoles={[ROLES.ADMIN, ROLES.SUPERADMIN]}>
+        <div className="bg-white p-6 rounded-2xl shadow-md">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-700">
+              Recent Donations
+            </h2>
+            <button
+              onClick={fetchDonations}
+              disabled={fetchingDonations}
+              className="flex items-center space-x-1 text-gray-600 hover:text-gray-800"
+            >
+              <ArrowPathIcon
+                className={`h-5 w-5 ${fetchingDonations ? "animate-spin" : ""}`}
+              />
+              <span className="text-sm">
+                {fetchingDonations ? "Refreshing..." : "Refresh"}
+              </span>
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm text-left text-gray-700">
+              <thead className="bg-gray-100 text-xs uppercase text-gray-600">
                 <tr>
-                  <td
-                    colSpan="11"
-                    className="px-4 py-4 text-center text-gray-400"
-                  >
-                    No donations recorded yet.
-                  </td>
+                  <th className="px-4 py-2">Donor Name</th>
+                  <th className="px-4 py-2">PAN</th>
+                  <th className="px-4 py-2">Amount</th>
+                  <th className="px-4 py-2">Type</th>
+                  <th className="px-4 py-2">Bank Name</th>
+                  <th className="px-4 py-2">UTR / Cheque No / Trans Ref</th>
+                  <th className="px-4 py-2">IFSC</th>
+                  <th className="px-4 py-2">Donation Date</th>
+                  <th className="px-4 py-2">Received Status</th>
+                  <th className="px-4 py-2">Transaction Date</th>
+                  <th className="px-4 py-2 w-20">Actions</th>
                 </tr>
-              ) : (
-                donations.map((d) => (
-                  <tr key={d.id} className="border-t group hover:bg-gray-50">
-                    <td className="px-4 py-2">{d.donor.fullName}</td>
-                    <td className="px-4 py-2">{d.donor.pan}</td>
-                    <td className="px-4 py-2">₹{d.amount.toFixed(2)}</td>
-                    <td className="px-4 py-2">{d.type}</td>
-                    <td className="px-4 py-2">{d.bankName}</td>
-                    <td className="px-4 py-2">{d.utr}</td>
-                    <td className="px-4 py-2">{d.ifsc}</td>
-                    <td className="px-4 py-2">
-                      {new Date(d.donationDate).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-2">{d.donationReceived}</td>
-                    <td className="px-4 py-2">
-                      {d.transactionDate
-                        ? new Date(d.transactionDate).toLocaleDateString()
-                        : "-"}
-                    </td>
-                    <td className="px-4 py-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleEdit(d.id)}
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          <PencilIcon className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(d.id)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          <TrashIcon className="h-4 w-4" />
-                        </button>
-                      </div>
+              </thead>
+              <tbody>
+                {donations.length === 0 && !fetchingDonations ? (
+                  <tr>
+                    <td
+                      colSpan="11"
+                      className="px-4 py-4 text-center text-gray-400"
+                    >
+                      No donations recorded yet.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  donations.map((d) => (
+                    <tr key={d.id} className="border-t group hover:bg-gray-50">
+                      <td className="px-4 py-2">{d.donor.fullName}</td>
+                      <td className="px-4 py-2">{d.donor.pan}</td>
+                      <td className="px-4 py-2">₹{d.amount.toFixed(2)}</td>
+                      <td className="px-4 py-2">{d.type}</td>
+                      <td className="px-4 py-2">{d.bankName}</td>
+                      <td className="px-4 py-2">{d.utr}</td>
+                      <td className="px-4 py-2">{d.ifsc}</td>
+                      <td className="px-4 py-2">
+                        {new Date(d.donationDate).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-2">{d.donationReceived}</td>
+                      <td className="px-4 py-2">
+                        {d.transactionDate
+                          ? new Date(d.transactionDate).toLocaleDateString()
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleEdit(d.id)}
+                            className="text-blue-600 hover:text-blue-800"
+                          >
+                            <PencilIcon className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(d.id)}
+                            className="text-red-600 hover:text-red-800"
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      </RoleGuard>
     </div>
   );
 };

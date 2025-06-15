@@ -15,9 +15,7 @@ const PrivateRoute = ({ roles = [], children }) => {
   }
 
   // 2. If roles specified, ensure user has at least one of them
-  if (roles.length > 0) {
-    console.log("PrivateRoute : ", user, " isAuthenticated : ", isAuthenticated);
-    
+  if (roles.length > 0) {    
     // user.roles is assumed to be an array of role identifiers (["admin", "user", ...])
     const hasRequiredRole = roles.includes(user?.role);
     if (!hasRequiredRole) {

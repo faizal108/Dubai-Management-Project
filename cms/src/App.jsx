@@ -22,6 +22,8 @@ const LoginPage = lazy(() => import("./pages/LoginPage"));
 const CreateUser = lazy(() => import("./pages/CreateUser"));
 const Unauthorized = lazy(() => import("./pages/Unauthorized"));
 const ViewDonations = lazy(() => import("./pages/ViewDonations"));
+const UpdateDonations = lazy(() => import("./pages/UpdateDonations"));
+
 
 const App = () => {
   return (
@@ -71,7 +73,7 @@ const App = () => {
               <Route
                 path="donation/search"
                 element={
-                  <PrivateRoute roles={["admin", "user"]}>
+                  <PrivateRoute roles={["admin"]}>
                     <SearchDonation />
                   </PrivateRoute>
                 }
@@ -96,8 +98,16 @@ const App = () => {
               <Route
                 path="view/donations"
                 element={
-                  <PrivateRoute roles={["admin", "user"]}>
+                  <PrivateRoute roles={["admin"]}>
                     <ViewDonations />
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="update/donations"
+                element={
+                  <PrivateRoute roles={["admin", "user"]}>
+                    <UpdateDonations />
                   </PrivateRoute>
                 }
               />

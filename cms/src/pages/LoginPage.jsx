@@ -33,11 +33,7 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
-      // Save token and user context
-      await login(username, password)
-        ? console.log("Login successful")
-        : console.log("Login failed");
-
+      await login(username, password);
       navigate("/");
     } catch (err) {
       console.error("Login Error:", err);

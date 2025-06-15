@@ -5,12 +5,13 @@ import {
   PlusCircleIcon,
   MagnifyingGlassIcon,
   ChartBarIcon,
-  ArrowRightOnRectangleIcon,
+  ArrowRightStartOnRectangleIcon,
   UserCircleIcon,
   Bars3Icon,
   XMarkIcon,
   UserIcon,
   EyeIcon,
+  PencilSquareIcon,
 } from "@heroicons/react/24/outline";
 import { Button } from "@material-tailwind/react";
 import { useLocation, Link, useNavigate } from "react-router-dom";
@@ -40,16 +41,22 @@ const navItemsTop = [
     role: [ROLES.USER, ROLES.ADMIN],
   },
   {
+    name: "Update Donations",
+    icon: <PencilSquareIcon className="h-5 w-5" />,
+    path: "/update/donations",
+    role: [ROLES.USER, ROLES.ADMIN],
+  },
+  {
     name: "View Donations",
     icon: <EyeIcon className="h-5 w-5" />,
     path: "/view/donations",
-    role: [ROLES.USER, ROLES.ADMIN],
+    role: [ROLES.ADMIN],
   },
   {
     name: "Search Donation",
     icon: <MagnifyingGlassIcon className="h-5 w-5" />,
     path: "/donation/search",
-    role: [ROLES.USER, ROLES.ADMIN],
+    role: [ROLES.ADMIN],
   },
   // {
   //   name: "Donation History",
@@ -83,7 +90,7 @@ const navItemsBottom = [
   },
   {
     name: "Logout",
-    icon: <ArrowRightOnRectangleIcon className="h-5 w-5" />,
+    icon: <ArrowRightStartOnRectangleIcon className="h-5 w-5" />,
     // path: "/logout",
   },
 ];
@@ -107,10 +114,14 @@ const Sidebar = () => {
       }`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b">
+      <div
+        className={`flex items-center ${
+          isOpen ? "justify-between" : "justify-center"
+        } p-4 border-b`}
+      >
         <span
           className={`text-xl font-bold text-blue-600 transition-opacity ${
-            isOpen ? "opacity-100" : "opacity-0"
+            isOpen ? "opacity-100 block" : "opacity-0 hidden"
           }`}
         >
           CMS
@@ -152,7 +163,7 @@ const Sidebar = () => {
                     isActive(path)
                       ? "bg-blue-100 text-blue-700 font-semibold"
                       : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-                  }`}
+                  } ${isOpen ? "justify-start" : "justify-center"}`}
                 >
                   {icon}
                   {isOpen && <span>{name}</span>}

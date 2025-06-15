@@ -13,6 +13,8 @@ import {
   getAllDonors,
   updateDonor,
 } from "../apis/endpoints";
+import RoleGuard from "../components/RoleGuard";
+import { ROLES } from "../constants/roles";
 
 const countryStateCity = {
   India: {
@@ -46,8 +48,6 @@ const AddDonor = () => {
     setIsFetching(true);
     try {
       const data = await getAllDonors();
-      console.log("Fetched donors:", data);
-      
       setDonors(data.donors || []);
     } catch (err) {
       console.error("Fetch donors error:", err);
@@ -312,102 +312,106 @@ const AddDonor = () => {
         </form>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl shadow-md">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-700">Recent Donors</h2>
-          <button
-            onClick={fetchDonors}
-            disabled={isFetching}
-            className="flex items-center space-x-2 text-gray-600 hover:text-gray-800 focus:outline-none"
-          >
-            {isFetching ? (
-              <svg
-                className="animate-spin h-5 w-5 text-gray-500"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v8h8a8 8 0 01-8 8v-8H4z"
-                />
-              </svg>
-            ) : (
-              <ArrowPathIcon className="h-5 w-5" />
-            )}
-            <span className="text-sm">
-              {isFetching ? "Loading..." : "Reload"}
-            </span>
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm text-left text-gray-700">
-            <thead className="bg-gray-100 text-xs uppercase text-gray-600">
-              <tr>
-                <th className="px-4 py-2">Full Name</th>
-                <th className="px-4 py-2">Address 1</th>
-                <th className="px-4 py-2">Address 2</th>
-                <th className="px-4 py-2">PAN</th>
-                <th className="px-4 py-2">Country</th>
-                <th className="px-4 py-2">State</th>
-                <th className="px-4 py-2">City</th>
-                <th className="px-4 py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {donors.length === 0 && !isFetching ? (
-                <tr>
-                  <td
-                    colSpan="8"
-                    className="px-4 py-4 text-center text-gray-400"
-                  >
-                    No donors available.
-                  </td>
-                </tr>
+      <RoleGuard allowedRoles={[ROLES.ADMIN, ROLES.SUPERADMIN]}>
+        <div className="bg-white p-6 rounded-2xl shadow-md">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-700">
+              Recent Donors
+            </h2>
+            <button
+              onClick={fetchDonors}
+              disabled={isFetching}
+              className="flex items-center space-x-2 text-gray-600 hover:text-gray-800 focus:outline-none"
+            >
+              {isFetching ? (
+                <svg
+                  className="animate-spin h-5 w-5 text-gray-500"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v8h8a8 8 0 01-8 8v-8H4z"
+                  />
+                </svg>
               ) : (
-                donors?.map((donor) => (
-                  <tr
-                    key={donor.id}
-                    className="border-t group hover:bg-gray-50"
-                  >
-                    <td className="px-4 py-2">{donor.fullName}</td>
-                    <td className="px-4 py-2">{donor.address1}</td>
-                    <td className="px-4 py-2">{donor.address2 || "-"}</td>
-                    <td className="px-4 py-2">{donor.pan}</td>
-                    <td className="px-4 py-2">{donor.country}</td>
-                    <td className="px-4 py-2">{donor.state}</td>
-                    <td className="px-4 py-2">{donor.city}</td>
-                    <td className="px-4 py-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                      <button
-                        onClick={() => handleEdit(donor)}
-                        className="text-blue-600 hover:underline mr-4"
-                      >
-                        <PencilIcon className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(donor.id)}
-                        className="text-red-600 hover:underline"
-                      >
-                        <TrashIcon className="h-4 w-4" />
-                      </button>
+                <ArrowPathIcon className="h-5 w-5" />
+              )}
+              <span className="text-sm">
+                {isFetching ? "Loading..." : "Reload"}
+              </span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm text-left text-gray-700">
+              <thead className="bg-gray-100 text-xs uppercase text-gray-600">
+                <tr>
+                  <th className="px-4 py-2">Full Name</th>
+                  <th className="px-4 py-2">Address 1</th>
+                  <th className="px-4 py-2">Address 2</th>
+                  <th className="px-4 py-2">PAN</th>
+                  <th className="px-4 py-2">Country</th>
+                  <th className="px-4 py-2">State</th>
+                  <th className="px-4 py-2">City</th>
+                  <th className="px-4 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {donors.length === 0 && !isFetching ? (
+                  <tr>
+                    <td
+                      colSpan="8"
+                      className="px-4 py-4 text-center text-gray-400"
+                    >
+                      No donors available.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  donors?.map((donor) => (
+                    <tr
+                      key={donor.id}
+                      className="border-t group hover:bg-gray-50"
+                    >
+                      <td className="px-4 py-2">{donor.fullName}</td>
+                      <td className="px-4 py-2">{donor.address1}</td>
+                      <td className="px-4 py-2">{donor.address2 || "-"}</td>
+                      <td className="px-4 py-2">{donor.pan}</td>
+                      <td className="px-4 py-2">{donor.country}</td>
+                      <td className="px-4 py-2">{donor.state}</td>
+                      <td className="px-4 py-2">{donor.city}</td>
+                      <td className="px-4 py-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                        <button
+                          onClick={() => handleEdit(donor)}
+                          className="text-blue-600 hover:underline mr-4"
+                        >
+                          <PencilIcon className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(donor.id)}
+                          className="text-red-600 hover:underline"
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      </RoleGuard>
     </div>
   );
 };
