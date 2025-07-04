@@ -14,6 +14,9 @@ import {
 } from "@heroicons/react/24/outline";
 import { toast } from "react-toastify";
 import { getAllDonations, updatePrintStatus } from "../apis/endpoints";
+import { convertNumberToWords } from "../utils/convertNumberToWords";
+import logoUrl from '../assets/receipt-logo.png';
+
 
 // Debounce helper
 function debounce(fn, delay) {
@@ -67,7 +70,7 @@ const DonationReport = () => {
   };
   // Fetch from API once on mount
   useEffect(() => {
-    handleLoadData();    
+    handleLoadData();
   }, []);
 
   // Filtering logic
@@ -198,88 +201,192 @@ const DonationReport = () => {
   //   toast.success("Print job completed");
   // };
 
-  const handlePrint = async () => {
+  const handlePrint = async (stampUrl) => {
     if (selectedIds.size === 0) {
       toast.info("Please select at least one record to print.");
       return;
     }
 
-    // Only print RECEIVED donations
+    // Only RECEIVED donations
     const records = donations.filter(
       (d) => selectedIds.has(d.id) && d.donationReceived === "RECEIVED"
     );
-    if (records.length === 0) {
+    if (!records.length) {
       toast.error("No RECEIVED donations selected for printing.");
       return;
     }
 
     setPrintProgress({ done: 0, total: records.length });
 
-    for (let i = 0; i < records.length; i++) {
-      const d = records[i];
+    // Helper: number → underlined words
+    const numberToWordsUnderlined = (num) => {
+      // you can plug in your existing convertNumberToWordsHTML here
+      // simplified stub:
+      const words = convertNumberToWords(num) + " only";
+      return `<span>${words}</span>`;
+    };
 
-      // 1) Build HTML snippet for this receipt
-      const content = `
-        <div style="font-family: sans-serif; margin: 40px;">
-          <h2>Donation Receipt</h2>
-          <p><strong>Donor:</strong> ${d.donor?.fullName || "-"}</p>
-          <p><strong>PAN:</strong> ${d.donor?.pan || "-"}</p>
-          <p><strong>Amount:</strong> ₹${d.amount?.toFixed(2)}</p>
-          <p><strong>Donation Date:</strong> ${d.donationDate}</p>
-          <p><strong>Transaction Date:</strong> ${d.transactionDate || "-"}</p>
-          <p><strong>Status:</strong> ${d.donationReceived}</p>
+    for (const d of records) {
+      // Build the HTML
+      const html = `
+      <html>
+      <head>
+        <title>Donation Receipt</title>
+        <style>
+          body { margin:0; font-family:Arial, sans-serif; }
+          .receipt { width:800px; margin:30px auto; border:8px solid #009245; padding:0; box-sizing:border-box; }
+          .top-bar { height:12px; background:#009245; }
+          .bottom-bar { height:12px; background:#F37021; }
+          .header { display:flex; padding:16px; }
+          .logo { width:90px; margin-right:16px; }
+          .title { flex:1; font-size:32px; line-height:1; color:#F37021; font-weight:bold; }
+          .title .peace { color:#009245; }
+          .meta { font-size:12px; margin-top:8px; line-height:1.3; }
+          hr { border:none; border-top:1px solid #000; margin:0 16px; }
+          .content { padding:16px; font-size:14px; }
+          .row { display:flex; justify-content:space-between; margin-bottom:12px; }
+          .label { width:180px; }
+          .fill { flex:1; border-bottom:1px solid #000; padding:2px 4px; display:inline-block; }
+          .wide { width:60%; }
+          .amount-box { border:1px solid #F37021; display:inline-block; padding:8px; font-size:16px; margin-top:12px; }
+          .sign-block { display:flex; justify-content:space-between; margin-top:24px; padding:0 16px; }
+          .stamp { width:140px; }
+          .footer {display: flex; align-items: center; }
+          .label-min { min-width: fit-content; margin-right: 8px; }
+          .fill-min { min-width: 150px; border-bottom: 1px solid #000; padding: 2px 4px; margin-right: 16px; }
+          .fill-flex { flex: 1; border-bottom: 1px solid #000; padding: 2px 4px; }
+        </style>
+      </head>
+      <body>
+        <div class="receipt">
+          <div class="top-bar"></div>
+          <div class="header">
+            <img src="${logoUrl}" class="logo" alt="YIPP Logo" />
+            <div>
+              <div class="title">
+                YOUTH INDIA <span class="peace">PEACE PARTY</span>
+              </div>
+              <div class="meta">
+                Reg No. 56/111/LET/ECI/FUNC/PP/PPS‑I/2018 • PAN No. AAABY1207D<br/>
+                5th Floor, Awning No.24 Road Side Ajanta Center, Ashram Road,<br/>
+                Ahmedabad‑380009 • E‑mail: yipp79@gmail.com
+              </div>
+            </div>
+          </div>
+          <hr />
+          <div class="content">
+            <div class="row">
+              <div class="row"><div><strong>Receipt No. Year ${new Date().getFullYear()} : </strong></div>
+              <div style="width: fit-content;margin-left: 5px;">${
+                d.id || ""
+              }</div></div>
+              <div class="row"><div><strong>Date : </strong></div>
+              <div class="fill" style="width: fit-content;">
+                ${new Date().toISOString().split("T")[0] || ""}
+              </div>
+              </div>
+            </div>
+
+            <div class="row">
+              <div><strong>Received with thanks from Mr./Mrs./Ms.:</strong></div>
+              <div class="fill wide">${d.donor?.fullName || ""}</div>
+            </div>
+            
+            <div class="row">
+              <div><strong>Address:</strong></div>
+              <div class="fill">${d.donor?.address1 || ""} ,${
+        d.donor?.city || ""
+      },${d.donor?.state || ""},${d.donor?.country || ""} </div>
+            </div>
+
+            <div class="row">
+              <div class="label-min"><strong>PAN No.:</strong></div>
+              <div class="fill-min">${d.donor?.pan || ""}</div>
+              <div class="label-min"><strong>The sum of Rupees:</strong></div>
+              <div class="fill-flex">${
+                numberToWordsUnderlined(d.amount || 0) || ""
+              }</div>
+            </div>
+
+            <div class="row">
+              <div><strong>Towards donation by Cash/Cheque/D.D. No.:</strong></div>
+              <div class="fill" style="width:200px;">${d.utr || ""}</div>
+            </div>
+
+            <div class="row">
+              <div><strong>Drawn on:</strong></div>
+              <div class="fill" style="width:200px;">${d.bankName || ""}</div>
+              <div><strong>Branch:</strong></div>
+              <div class="fill" style="width:200px;">${d.ifsc || ""}</div>
+            </div>
+
+            <div class="row">
+              <div class="row">
+                <div class="label-min"><Strong>Date : </Strong></div>
+                <div class="fill-min" style="width: fit-content;">${
+                  d.donationDate?.split("T")[0] || "-"
+                }</div>
+              </div>
+
+              <div class="row" style="margin-top: 10px;">
+                <div class="label-min"><Strong>for, YOUTH INDIA PEACE PARTY</Strong></div>
+              </div>
+            </div>
+            <div class="footer">
+              <div class="amount-input" style="display: flex; align-items: center; border: 2px solid #F37021; width: 200px;">
+                <div style="width: 40px; height: 40px; background-color: #F37021!important; color: white; font-size: 24px; display: flex; align-items: center; justify-content: center;">
+                  &#8377;
+                </div>
+                <div style="width: 100%; font-size: 1.3rem; padding: 2px;text-align: center;"><Strong>${
+                  d.amount || ""
+                }</Strong> /-</div>
+              </div>
+              <div style="font-size:16px;text-align: center;font-weight: bold;line-height: 115%;margin-left: 5px;">
+                This Donation is Eligible for Exemption<br/>
+                Under Income Tax Act 1961 U/S 80GGC/80GGB
+              </div>
+            </div>
+          </div>
+          <div class="bottom-bar"></div>
         </div>
-      `;
+      </body>
+      </html>
+    `;
 
-      // 2) Inject HTML into a hidden iframe
+      // print via hidden iframe
       const iframe = document.createElement("iframe");
-      iframe.style.position = "absolute";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
-      iframe.style.border = "none";
+      Object.assign(iframe.style, {
+        position: "absolute",
+        width: 0,
+        height: 0,
+        border: "none",
+      });
       document.body.appendChild(iframe);
-
       const doc = iframe.contentWindow.document;
       doc.open();
-      doc.write(`
-        <html>
-          <head>
-            <title>Print Receipt</title>
-            <style>
-              @media print {
-                body { margin: 0; }
-                h2 { margin-bottom: 16px; }
-              }
-            </style>
-          </head>
-          <body>${content}</body>
-        </html>
-      `);
+      doc.write(html);
       doc.close();
 
-      // 3) Trigger native print dialog, then wait a moment
-      await new Promise((resolve) => {
+      await new Promise((res) => {
         iframe.onload = () => {
           iframe.contentWindow.focus();
           iframe.contentWindow.print();
-          setTimeout(resolve, 500); // ensure dialog opens
+          setTimeout(res, 500);
         };
       });
 
-      // 4) Cleanup iframe & update backend status
       document.body.removeChild(iframe);
+
+      // update status & reload
       try {
         await updatePrintStatus(d.id);
-        handleLoadData();    
-      } catch (e) {
-        console.error("Failed to update print status", e);
-        toast.error("Failed to update print status for one record.");
+        await handleLoadData();
+      } catch (err) {
+        console.error("Failed to update print status for", d.id, err);
+        toast.error(`Failed to update status for receipt ${d.id}.`);
       }
 
-      setPrintProgress((prev) => ({
-        done: prev.done + 1,
-        total: prev.total,
-      }));
+      setPrintProgress((p) => ({ done: p.done + 1, total: p.total }));
     }
 
     toast.success("All selected receipts have been sent to print.");
