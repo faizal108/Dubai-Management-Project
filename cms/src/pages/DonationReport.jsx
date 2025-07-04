@@ -15,8 +15,7 @@ import {
 import { toast } from "react-toastify";
 import { getAllDonations, updatePrintStatus } from "../apis/endpoints";
 import { convertNumberToWords } from "../utils/convertNumberToWords";
-import logoUrl from '../assets/receipt-logo.png';
-
+import logoUrl from "../assets/receipt-logo.png";
 
 // Debounce helper
 function debounce(fn, delay) {
@@ -282,7 +281,13 @@ const DonationReport = () => {
               }</div></div>
               <div class="row"><div><strong>Date : </strong></div>
               <div class="fill" style="width: fit-content;">
-                ${new Date().toISOString().split("T")[0] || ""}
+                ${(() => {
+                  const d = new Date();
+                  const day = String(d.getDate()).padStart(2, "0");
+                  const month = String(d.getMonth() + 1).padStart(2, "0");
+                  const year = d.getFullYear();
+                  return `${day}/${month}/${year}`;
+                })()}
               </div>
               </div>
             </div>
@@ -323,9 +328,17 @@ const DonationReport = () => {
             <div class="row">
               <div class="row">
                 <div class="label-min"><Strong>Date : </Strong></div>
-                <div class="fill-min" style="width: fit-content;">${
-                  d.donationDate?.split("T")[0] || "-"
-                }</div>
+                <div class="fill-min" style="width: fit-content;">
+                  ${(() => {
+                    if (!d.donationDate) return "-";
+                    const date = new Date(d.donationDate);
+                    const day = String(date.getDate()).padStart(2, "0");
+                    const month = String(date.getMonth() + 1).padStart(2, "0");
+                    const year = date.getFullYear();
+                    return `${day}/${month}/${year}`;
+                  })()}
+                </div>
+
               </div>
 
               <div class="row" style="margin-top: 10px;">
