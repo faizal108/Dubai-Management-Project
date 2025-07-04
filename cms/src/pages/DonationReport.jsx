@@ -233,7 +233,7 @@ const DonationReport = () => {
         <title>Donation Receipt</title>
         <style>
           body { margin:0; font-family:Arial, sans-serif; }
-          .receipt { width:800px; margin:30px auto; border:8px solid #009245; padding:0; box-sizing:border-box; }
+          .receipt { width:1000px; height: 500px; margin:30px auto; border:8px solid #009245; padding:0; box-sizing:border-box; }
           .top-bar { height:12px; background:#009245; }
           .bottom-bar { height:12px; background:#F37021; }
           .header { display:flex; padding:16px; }
@@ -276,9 +276,20 @@ const DonationReport = () => {
           <div class="content">
             <div class="row">
               <div class="row"><div><strong>Receipt No. Year ${new Date().getFullYear()} : </strong></div>
-              <div style="width: fit-content;margin-left: 5px;">${
-                d.id || ""
-              }</div></div>
+              <div style="width: fit-content;margin-left: 5px;">
+                ${(() => {
+                  const d = new Date();
+                  const pad = (n) => String(n).padStart(2, "0");
+                  return (
+                    pad(d.getFullYear() % 100) +
+                    pad(d.getMonth() + 1) +
+                    pad(d.getDate()) +
+                    pad(d.getHours()) +
+                    pad(d.getMinutes())
+                  );
+                })()}
+              </div>
+              </div>
               <div class="row"><div><strong>Date : </strong></div>
               <div class="fill" style="width: fit-content;">
                 ${(() => {
