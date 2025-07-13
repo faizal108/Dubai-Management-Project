@@ -200,64 +200,45 @@ const DonationReport = () => {
   //   toast.success("Print job completed");
   // };
 
-  const handlePrint = async (stampUrl) => {
+  const handlePrint = async () => {
     if (selectedIds.size === 0) {
       toast.info("Please select at least one record to print.");
       return;
     }
 
-    // Only RECEIVED donations
+    // Filter only RECEIVED donations
     const records = donations.filter(
       (d) => selectedIds.has(d.id) && d.donationReceived === "RECEIVED"
     );
-    if (!records.length) {
+    if (records.length === 0) {
       toast.error("No RECEIVED donations selected for printing.");
       return;
     }
 
-    setPrintProgress({ done: 0, total: records.length });
-
-    // Helper: number → underlined words
+    // Helper to underline number‑to‑words
     const numberToWordsUnderlined = (num) => {
-      // you can plug in your existing convertNumberToWordsHTML here
-      // simplified stub:
       const words = convertNumberToWords(num) + " only";
-      return `<span>${words}</span>`;
+      return `<span">${words}</span>`;
     };
 
-    for (const d of records) {
-      // Build the HTML
-      const html = `
-      <html>
-      <head>
-        <title>Donation Receipt</title>
-        <style>
-          body { margin:0; font-family:Arial, sans-serif; }
-          .receipt { width:1000px; height: 500px; margin:30px auto; border:8px solid #009245; padding:0; box-sizing:border-box; }
-          .top-bar { height:12px; background:#009245; }
-          .bottom-bar { height:12px; background:#F37021; }
-          .header { display:flex; padding:16px; }
-          .logo { width:90px; margin-right:16px; }
-          .title { flex:1; font-size:32px; line-height:1; color:#F37021; font-weight:bold; }
-          .title .peace { color:#009245; }
-          .meta { font-size:12px; margin-top:8px; line-height:1.3; }
-          hr { border:none; border-top:1px solid #000; margin:0 16px; }
-          .content { padding:16px; font-size:14px; }
-          .row { display:flex; justify-content:space-between; margin-bottom:12px; }
-          .label { width:180px; }
-          .fill { flex:1; border-bottom:1px solid #000; padding:2px 4px; display:inline-block; }
-          .wide { width:60%; }
-          .amount-box { border:1px solid #F37021; display:inline-block; padding:8px; font-size:16px; margin-top:12px; }
-          .sign-block { display:flex; justify-content:space-between; margin-top:24px; padding:0 16px; }
-          .stamp { width:140px; }
-          .footer {display: flex; align-items: center; }
-          .label-min { min-width: fit-content; margin-right: 8px; }
-          .fill-min { min-width: 150px; border-bottom: 1px solid #000; padding: 2px 4px; margin-right: 16px; }
-          .fill-flex { flex: 1; border-bottom: 1px solid #000; padding: 2px 4px; }
-        </style>
-      </head>
-      <body>
-        <div class="receipt">
+    // Build per‑record HTML
+    const buildReceiptHtml = (d) => {
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      const receiptNo =
+        pad(now.getFullYear() % 100) +
+        pad(now.getMonth() + 1) +
+        pad(now.getDate()) +
+        pad(now.getHours()) +
+        pad(now.getMinutes());
+      const donationDate = d.donationDate ? new Date(d.donationDate) : null;
+      const donationDateStr = donationDate
+        ? `${pad(donationDate.getDate())}/${pad(
+            donationDate.getMonth() + 1
+          )}/${donationDate.getFullYear()}`
+        : "-";
+
+      return `<div class="receipt">
           <div class="top-bar"></div>
           <div class="header">
             <img src="${logoUrl}" class="logo" alt="YIPP Logo" />
@@ -372,12 +353,47 @@ const DonationReport = () => {
             </div>
           </div>
           <div class="bottom-bar"></div>
-        </div>
-      </body>
+        </div>`;
+    };
+
+    // Combine into one document with page breaks
+    const fullHtml = `
+      <html>
+        <head>
+          <title>Batch Donation Receipts</title>
+          <style>
+            body { margin:0; font-family: Arial, sans-serif; }
+            .receipt { width:1000px; margin: 40px auto; border:8px solid #009245; padding:16px; box-sizing:border-box; page-break-after:always; }
+            .top-bar { height:12px; background:#009245; }
+          .bottom-bar { height:12px; background:#F37021; }
+          .header { display:flex; padding:16px; }
+          .logo { width:90px; margin-right:16px; }
+          .title { flex:1; font-size:32px; line-height:1; color:#F37021; font-weight:bold; }
+          .title .peace { color:#009245; }
+          .meta { font-size:12px; margin-top:8px; line-height:1.3; }
+          hr { border:none; border-top:1px solid #000; margin:0 16px; }
+          .content { padding:16px; font-size:14px; }
+          .row { display:flex; justify-content:space-between; margin-bottom:12px; }
+          .label { width:180px; }
+          .fill { flex:1; border-bottom:1px solid #000; padding:2px 4px; display:inline-block; }
+          .wide { width:60%; }
+          .amount-box { border:1px solid #F37021; display:inline-block; padding:8px; font-size:16px; margin-top:12px; }
+          .sign-block { display:flex; justify-content:space-between; margin-top:24px; padding:0 16px; }
+          .stamp { width:140px; }
+          .footer {display: flex; align-items: center; }
+          .label-min { min-width: fit-content; margin-right: 8px; }
+          .fill-min { min-width: 150px; border-bottom: 1px solid #000; padding: 2px 4px; margin-right: 16px; }
+          .fill-flex { flex: 1; border-bottom: 1px solid #000; padding: 2px 4px; }
+          </style>
+        </head>
+        <body>
+          ${records.map(buildReceiptHtml).join("")}
+        </body>
       </html>
     `;
 
-      // print via hidden iframe
+    // Print via hidden iframe
+    return new Promise((resolve) => {
       const iframe = document.createElement("iframe");
       Object.assign(iframe.style, {
         position: "absolute",
@@ -386,34 +402,26 @@ const DonationReport = () => {
         border: "none",
       });
       document.body.appendChild(iframe);
+
       const doc = iframe.contentWindow.document;
       doc.open();
-      doc.write(html);
+      doc.write(fullHtml);
       doc.close();
 
-      await new Promise((res) => {
-        iframe.onload = () => {
-          iframe.contentWindow.focus();
-          iframe.contentWindow.print();
-          setTimeout(res, 500);
-        };
-      });
+      iframe.onload = async () => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
 
-      document.body.removeChild(iframe);
-
-      // update status & reload
-      try {
-        await updatePrintStatus(d.id);
-        await handleLoadData();
-      } catch (err) {
-        console.error("Failed to update print status for", d.id, err);
-        toast.error(`Failed to update status for receipt ${d.id}.`);
-      }
-
-      setPrintProgress((p) => ({ done: p.done + 1, total: p.total }));
-    }
-
-    toast.success("All selected receipts have been sent to print.");
+        // cleanup, update status, refresh
+        setTimeout(async () => {
+          document.body.removeChild(iframe);
+          await Promise.all(records.map((d) => updatePrintStatus(d.id)));
+          await handleLoadData();
+          toast.success("All selected receipts have been sent to print.");
+          resolve();
+        }, 500);
+      };
+    });
   };
 
   return (
