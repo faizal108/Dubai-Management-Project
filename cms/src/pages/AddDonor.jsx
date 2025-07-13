@@ -382,6 +382,7 @@ const AddDonor = () => {
                   <th className="px-4 py-2">Address 1</th>
                   <th className="px-4 py-2">Address 2</th>
                   <th className="px-4 py-2">PAN</th>
+                  <th className="px-4 py-2">Phone</th>
                   <th className="px-4 py-2">Country</th>
                   <th className="px-4 py-2">State</th>
                   <th className="px-4 py-2">City</th>
@@ -408,6 +409,7 @@ const AddDonor = () => {
                       <td className="px-4 py-2">{donor.address1}</td>
                       <td className="px-4 py-2">{donor.address2 || "-"}</td>
                       <td className="px-4 py-2">{donor.pan}</td>
+                      <td className="px-4 py-2">{donor.phone}</td>
                       <td className="px-4 py-2">{donor.country}</td>
                       <td className="px-4 py-2">{donor.state}</td>
                       <td className="px-4 py-2">{donor.city}</td>
