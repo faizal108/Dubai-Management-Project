@@ -16,6 +16,7 @@ import { toast } from "react-toastify";
 import { getAllDonations, updatePrintStatus } from "../apis/endpoints";
 import { convertNumberToWords } from "../utils/convertNumberToWords";
 import logoUrl from "../assets/receipt-logo.png";
+import html2canvas from "html2canvas";
 
 // Debounce helper
 function debounce(fn, delay) {
@@ -163,42 +164,6 @@ const DonationReport = () => {
     }
     csvLinkRef.current.link.click();
   };
-
-  // Print handler with progress
-  // const handlePrint = async () => {
-  //   if (selectedIds.size === 0) {
-  //     toast.info("Please select at least one record to print.");
-  //     return;
-  //   }
-  //   const records = donations.filter((d) => selectedIds.has(d.id));
-  //   setPrintProgress({ done: 0, total: records.length });
-
-  //   for (let i = 0; i < records.length; i++) {
-  //     const d = records[i];
-  //     const doc = new jsPDF({ orientation: "landscape" });
-  //     doc.setFontSize(14);
-  //     doc.text(`Donor: ${d.donor?.fullName || "-"}`, 20, 30);
-  //     doc.text(`PAN: ${d.donor?.pan}`, 60, 30);
-  //     doc.text(`Amount: ₹${d.amount?.toFixed(2)}`, 60, 40);
-  //     doc.text(`Donation Date: ${d.donationDate}`, 60, 50);
-  //     doc.text(`Transaction Date: ${d.transactionDate || "-"}`, 60, 60);
-  //     doc.text(`Status: ${d.donationReceived}`, 60, 70);
-  //     doc.text(`Printed: ${d.isPrinted ? "Yes" : "No"}`, 60, 80);
-  //     doc.autoPrint();
-
-  //     // update printed status via API
-  //     try {
-  //       await updatePrintStatus(d.id);
-  //     } catch (e) {
-  //       console.error("Failed to update print status", e);
-  //       toast.error("Failed to update print status");
-  //     }
-
-  //     setPrintProgress((prev) => ({ done: prev.done + 1, total: prev.total }));
-  //     window.open(doc.output("bloburl"), "_blank");
-  //   }
-  //   toast.success("Print job completed");
-  // };
 
   const handlePrint = async () => {
     if (selectedIds.size === 0) {
@@ -424,36 +389,280 @@ const DonationReport = () => {
     });
   };
 
+  const handleSavePdf = async () => {
+    if (selectedIds.size === 0) {
+      toast.info("Please select at least one record to save as PDF.");
+      return;
+    }
+
+    // 1) Filter only RECEIVED donations
+    const records = donations.filter(
+      (d) => selectedIds.has(d.id) && d.donationReceived === "RECEIVED"
+    );
+    if (records.length === 0) {
+      toast.error("No RECEIVED donations selected for PDF.");
+      return;
+    }
+    setPrintProgress({ done: 0, total: records.size });
+
+    // 2) Helper to underline number‑to‑words
+    const numberToWordsUnderlined = (num) => {
+      const words = convertNumberToWords(num) + " only";
+      return `<span">${words}</span>`;
+    };
+
+    // 3) Build the HTML for one receipt (no page breaks needed here)
+    const buildReceiptWrapper = (d) => {
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      const receiptNo =
+        pad(now.getFullYear() % 100) +
+        pad(now.getMonth() + 1) +
+        pad(now.getDate()) +
+        pad(now.getHours()) +
+        pad(now.getMinutes());
+      const donationDateStr = d.donationDate
+        ? `${pad(new Date(d.donationDate).getDate())}/${pad(
+            new Date(d.donationDate).getMonth() + 1
+          )}/${new Date(d.donationDate).getFullYear()}`
+        : "-";
+
+      // wrap in a container so html2canvas can size it
+      const el = document.createElement("div");
+      el.className = "receipt";
+      el.style.position = "absolute";
+      el.style.top = "-9999px";
+      el.style.left = "-9999px";
+      el.style.zIndex = "-1000";
+      el.style.width = "1000px";
+      el.style.height = "500px";
+      el.style.margin = "40px auto";
+      el.style.border = "8px solid #009245";
+      el.style.padding = "0px";
+      el.style.boxSizing = "border-box";
+      el.style.background = "#fff";
+      el.innerHTML = `
+      <div style="display:flex; padding:16px;">
+        <img src="${logoUrl}" alt="YIPP Logo" style="width:90px; margin-right:16px;" />
+        <div>
+          <div style="font-size:32px; line-height:1; color:#F37021; font-weight:bold;">
+            YOUTH INDIA <span style="color:#009245;">PEACE PARTY</span>
+          </div>
+          <div style="font-size:12px; margin-top:8px; line-height:1.3;">
+            Reg No. 56/111/LET/ECI/FUNC/PP/PPS‑I/2018 • PAN No. AAABY1207D<br/>
+            5th Floor, Awning No.24 Road Side Ajanta Center, Ashram Road,<br/>
+            Ahmedabad‑380009 • E‑mail: yipp79@gmail.com
+          </div>
+        </div>
+      </div>
+      <hr style="border:none; border-top:1px solid #000; margin:0 16px;" />
+      <div style="padding:16px; font-size:14px;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+          <div style="display:flex;"><div><strong>Receipt No. Year ${new Date().getFullYear()} : </strong></div>
+            <div style="width: fit-content; margin-left: 5px;">
+              ${(() => {
+                const d = new Date();
+                const pad = (n) => String(n).padStart(2, "0");
+                return (
+                  pad(d.getFullYear() % 100) +
+                  pad(d.getMonth() + 1) +
+                  pad(d.getDate()) +
+                  pad(d.getHours()) +
+                  pad(d.getMinutes())
+                );
+              })()}
+            </div>
+          </div>
+          <div style="display:flex;">
+            <div><strong>Date : </strong></div>
+            <div style="border-bottom:1px solid #000; padding:2px 4px; width: fit-content;">
+              ${(() => {
+                const d = new Date();
+                const day = String(d.getDate()).padStart(2, "0");
+                const month = String(d.getMonth() + 1).padStart(2, "0");
+                const year = d.getFullYear();
+                return `${day}/${month}/${year}`;
+              })()}
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; margin-bottom:12px;">
+          <div><strong>Received with thanks from Mr./Mrs./Ms.:</strong></div>
+          <div style="flex:1; border-bottom:1px solid #000; padding:2px 4px; display:inline-block; width:60%;">${
+            d.donor?.fullName || ""
+          }</div>
+        </div>
+
+        <div style="display:flex; margin-bottom:12px;">
+          <div><strong>Address:</strong></div>
+          <div style="flex:1; border-bottom:1px solid #000; padding:2px 4px;">${
+            d.donor?.address1 || ""
+          } ,${d.donor?.city || ""},${d.donor?.state || ""},${
+        d.donor?.country || ""
+      }</div>
+        </div>
+
+        <div style="display:flex; margin-bottom:12px; align-items:center;">
+          <div style="min-width:fit-content; margin-right:8px;"><strong>PAN No.:</strong></div>
+          <div style="min-width:150px; border-bottom:1px solid #000; padding:2px 4px; margin-right:16px;">${
+            d.donor?.pan || ""
+          }</div>
+          <div style="min-width:fit-content; margin-right:8px;"><strong>The sum of Rupees:</strong></div>
+          <div style="flex:1; border-bottom:1px solid #000; padding:2px 4px;">${
+            numberToWordsUnderlined(d.amount || 0) || ""
+          }</div>
+        </div>
+
+            <div class="row" style="display:flex; justify-content:space-between; margin-bottom:12px;">
+              <div><strong>Towards donation by Cash/Cheque/D.D. No.:</strong></div>
+              <div class="fill" style="flex:1; border-bottom:1px solid #000; padding:2px 4px; display:inline-block;">${
+                d.utr || ""
+              }</div>
+            </div>
+
+            <div class="row" style="display:flex; justify-content:space-between; margin-bottom:12px;">
+              <div><strong>Drawn on:</strong></div>
+              <div class="fill" style="width:200px;flex:1; border-bottom:1px solid #000; padding:2px 4px; display:inline-block;">${
+                d.bankName || ""
+              }</div>
+              <div><strong>Branch:</strong></div>
+              <div class="fill" style="width:200px;flex:1; border-bottom:1px solid #000; padding:2px 4px; display:inline-block;">${
+                d.ifsc || ""
+              }</div>
+            </div>
+
+        <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+          <div style="display:flex;">
+            <div style="min-width:fit-content; margin-right:8px;"><strong>Date : </strong></div>
+            <div style="min-width:150px; border-bottom:1px solid #000; padding:2px 4px;">
+              ${(() => {
+                if (!d.donationDate) return "-";
+                const date = new Date(d.donationDate);
+                const day = String(date.getDate()).padStart(2, "0");
+                const month = String(date.getMonth() + 1).padStart(2, "0");
+                const year = date.getFullYear();
+                return `${day}/${month}/${year}`;
+              })()}
+            </div>
+          </div>
+          <div style="margin-top:10px;">
+            <strong>for, YOUTH INDIA PEACE PARTY</strong>
+          </div>
+        </div>
+
+        <div class="footer" style="display: flex; align-items: center;">
+              <div class="amount-input" style="display: flex; align-items: center; border: 2px solid #F37021; width: 200px;">
+                <div style="width: 40px; height: 40px; background-color: #F37021!important; color: white; font-size: 24px; display: flex; align-items: center; justify-content: center;">
+                  &#8377;
+                </div>
+                <div style="width: 100%; font-size: 1.3rem; padding: 2px;text-align: center;"><Strong>${
+                  d.amount || ""
+                }</Strong> /-</div>
+              </div>
+              <div style="font-size:16px;text-align: center;font-weight: bold;line-height: 115%;margin-left: 5px;">
+                This Donation is Eligible for Exemption<br/>
+                Under Income Tax Act 1961 U/S 80GGC/80GGB
+              </div>
+            </div>
+          </div>
+      `;
+      return el;
+    };
+
+    // 4) Instantiate jsPDF in landscape
+    const pdf = new jsPDF({
+      unit: "pt",
+      format: "a4",
+      orientation: "landscape",
+    });
+
+    // 5) Loop through each record, render to canvas, add to PDF
+    for (let i = 0; i < records.length; i++) {
+      // a) Build a DOM node for this receipt
+      const receiptEl = buildReceiptWrapper(records[i]);
+      document.body.appendChild(receiptEl);
+      // b) Render it to canvas
+      //    scale:2 gives better resolution
+      const canvas = await html2canvas(receiptEl, {
+        scale: 2,
+        backgroundColor: null,
+      });
+
+      // c) Compute dimensions in PDF points
+      const imgData = canvas.toDataURL("image/png");
+      const pdfW = pdf.internal.pageSize.getWidth();
+      const pdfH = (canvas.height * pdfW) / canvas.width;
+
+      // d) Add to PDF (new page for all but the first)
+      if (i > 0) pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, 0, pdfW, pdfH);
+
+      // e) Cleanup this DOM node
+      document.body.removeChild(receiptEl);
+      setPrintProgress({ done: i + 1, total: records.length });
+    }
+
+    // 6) Save PDF
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[-:T]/g, "")
+      .split(".")[0]; // e.g. 20250713_151030
+
+    pdf.save(`report_${timestamp}.pdf`);
+
+    // 7) Update statuses & reload data
+    await Promise.all(records.map((d) => updatePrintStatus(d.id)));
+    await handleLoadData();
+    toast.success("PDF generated and downloaded.");
+  };
   return (
     <div className="space-y-6 relative">
       {/* Progress Indicator */}
       {printProgress.total > 0 && printProgress.done < printProgress.total && (
-        <div className="fixed bottom-4 right-4 bg-white p-4 rounded-full shadow-lg flex flex-col items-center">
-          <svg className="animate-spin h-12 w-12 mb-2" viewBox="0 0 24 24">
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-              fill="none"
-            />
-            <circle
-              className="opacity-75"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-              strokeDasharray={`${
-                (printProgress.done / printProgress.total) * 62.8
-              } 62.8"`}
-              fill="none"
-            />
-          </svg>
-          <div>
-            {printProgress.done}/{printProgress.total} Printed
+        <div className="fixed bottom-4 right-4 z-50 bg-white/70 backdrop-blur-lg border border-gray-200 shadow-2xl p-4 rounded-2xl flex flex-col items-center w-32">
+          <div className="relative w-20 h-20">
+            <svg
+              className="absolute top-0 left-0 w-full h-full"
+              viewBox="0 0 36 36"
+            >
+              <path
+                className="text-gray-300"
+                d="M18 2.0845
+             a 15.9155 15.9155 0 0 1 0 31.831
+             a 15.9155 15.9155 0 0 1 0 -31.831"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              />
+              <path
+                className="text-green-600 transition-all duration-300"
+                d="M18 2.0845
+             a 15.9155 15.9155 0 0 1 0 31.831
+             a 15.9155 15.9155 0 0 1 0 -31.831"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeDasharray={`${(
+                  (printProgress.done / printProgress.total) *
+                  100
+                ).toFixed(2)}, 100`}
+              />
+              <text
+                x="50%"
+                y="50%"
+                dominantBaseline="middle"
+                textAnchor="middle"
+                className="text-sm fill-gray-700 font-bold"
+              >
+                {Math.floor((printProgress.done / printProgress.total) * 100)}%
+              </text>
+            </svg>
+          </div>
+          <div className="mt-2 text-sm text-gray-700 font-semibold text-center">
+            {printProgress.done}/{printProgress.total}
+            <br />
+            Printed
           </div>
         </div>
       )}
@@ -472,6 +681,13 @@ const DonationReport = () => {
           className="hidden"
           ref={csvLinkRef}
         />
+
+        <button
+          onClick={handleSavePdf}
+          className="flex items-center gap-1 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+        >
+          💾 Save as PDF
+        </button>
 
         <button
           onClick={handlePrint}
