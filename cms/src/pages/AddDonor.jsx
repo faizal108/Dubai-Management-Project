@@ -32,6 +32,7 @@ const initialForm = {
   address1: "",
   address2: "",
   pan: "",
+  phone: "",
   country: "",
   state: "",
   city: "",
@@ -97,6 +98,10 @@ const AddDonor = () => {
         toast.warn(`${field} is required.`);
         return;
       }
+      if (form.phone && !/^\d{10}$/.test(form.phone)) {
+        toast.warn("Phone number must be exactly 10 digits or leave it blank.");
+        return;
+      }
     }
 
     setFormLoading(true);
@@ -126,6 +131,7 @@ const AddDonor = () => {
       address1: donor.address1 || "",
       address2: donor.address2 || "",
       pan: donor.pan || "",
+      phone: donor.phone || "",
       country: donor.country || "",
       state: donor.state || "",
       city: donor.city || "",
@@ -212,6 +218,21 @@ const AddDonor = () => {
             className="border border-gray-300 rounded-lg px-4 py-2"
             disabled={formLoading}
             required
+          />
+          <input
+            type="text"
+            name="phone"
+            placeholder="Phone Number"
+            value={form.phone}
+            onChange={(e) => {
+              const input = e.target.value;
+              if (input === "" || /^\d{0,10}$/.test(input)) {
+                handleChange(e);
+              }
+            }}
+            className="border border-gray-300 rounded-lg px-4 py-2"
+            disabled={formLoading}
+            maxLength={10}
           />
 
           {/* Country Dropdown */}

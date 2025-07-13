@@ -12,6 +12,7 @@ export async function createDonation(req, res) {
       donationDate,
       transactionDate,
       amount,
+      donationReceived
     } = req.body;
 
     const donation = await donationService.createDonation({
@@ -25,7 +26,7 @@ export async function createDonation(req, res) {
         donationDate: donationDate ? new Date(donationDate) : undefined,
         transactionDate: transactionDate ? new Date(transactionDate) : null,
         amount: parseFloat(amount),
-        donationReceived: "PENDING",
+        donationReceived: donationReceived?.trim() ? donationReceived : "PENDING",
       },
     });
 

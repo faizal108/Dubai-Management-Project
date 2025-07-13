@@ -18,14 +18,14 @@ import {
 import RoleGuard from "../components/RoleGuard";
 import { ROLES } from "../constants/roles";
 
-const donationTypes = ["CASH", "CHEQUE", "ONLINE"];
+const donationTypes = ["ONLINE","CASH", "CHEQUE", "UPI"];
 
 const initialForm = {
   pan: "",
   donorId: "",
   donorName: "",
   amount: "",
-  type: "CASH",
+  type: "ONLINE",
   bankName: "",
   utr: "",
   ifsc: "",
@@ -181,7 +181,9 @@ const AddDonation = ({ foundationId }) => {
         transactionDate: form.transactionDate
           ? new Date(form.transactionDate).toISOString()
           : null,
-        donationReceived: form.donationReceived,
+        donationReceived: donationReceived?.trim()
+          ? donationReceived
+          : "PENDING",
       };
 
       if (editId) {

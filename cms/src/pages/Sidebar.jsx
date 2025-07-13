@@ -119,12 +119,21 @@ const Sidebar = () => {
           isOpen ? "justify-between" : "justify-center"
         } p-4 border-b`}
       >
-        <span
-          className={`text-xl font-bold text-blue-600 transition-opacity ${
-            isOpen ? "opacity-100 block" : "opacity-0 hidden"
-          }`}
-        >
-          CMS
+        <span className="text-xl font-bold transition-opacity">
+          <span
+            className={`text-orange-600 ${
+              isOpen ? "opacity-100 inline" : "opacity-0 hidden"
+            }`}
+          >
+            YI
+          </span>
+          <span
+            className={`text-green-600 ${
+              isOpen ? "opacity-100 inline" : "opacity-0 hidden"
+            }`}
+          >
+            PP
+          </span>
         </span>
         <button onClick={() => setIsOpen(!isOpen)}>
           {isOpen ? (

@@ -45,6 +45,7 @@ model Donor {
   address1  String
   address2  String
   pan       String  @unique
+  phone     String  @default("")
   country   String
   state     String
   city      String
