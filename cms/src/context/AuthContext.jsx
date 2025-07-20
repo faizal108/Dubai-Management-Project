@@ -1,90 +1,90 @@
 // src/context/AuthContext.jsx
-
 import React, { createContext, useState, useEffect, useContext } from "react";
 import { userlogin } from "../apis/endpoints";
 import { toast } from "react-toastify";
 import { jwtDecode } from "jwt-decode";
+import { getAuthToken, getAuthUser } from "../utils/authHelpers";
 
 const AuthContext = createContext({
+  token: null,
   user: null,
   isAuthenticated: false,
-  login: async (username, password) => {},
+  login: async () => {},
   logout: () => {},
 });
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => {
-    // on initial mount, check localStorage
-    const stored = localStorage.getItem("auth");
-    if (stored) {
-      try {
-        const { token, user } = JSON.parse(stored);
-        return user;
-      } catch (e) {
-        return null;
-      }
-    }
-    return null;
-  });
+  // 1. Initialize from helpers
+  const [token, setToken] = useState(() => getAuthToken());
+  const [user, setUser] = useState(() => getAuthUser());
 
-  const isAuthenticated = Boolean(user);
-
-  // login: call backend, store token & user object
-  const login = async (username, password) => {
+  // 2. Helper: Check JWT expiry
+  const isTokenValid = (t) => {
+    if (!t) return false;
     try {
-      const response = await userlogin({ username, password });
-      // console.log("AuthContext login Response:", response);
-
-      const { token } = response || {};
-      if (!token) {
-        throw new Error("Token missing in response.");
-      }
-
-      // Optionally decode the token if needed
-      const decoded = jwtDecode(token); // contains: userId, role, foundationId
-
-      const user = {
-        id: decoded.userId,
-        role: decoded.role,
-        foundationId: decoded.foundationId,
-      };
-
-      // Persist to localStorage
-      localStorage.setItem("auth", JSON.stringify({ token, user }));
-
-      // Update context
-      setUser(user);
-
-      toast.success("Logged in successfully.");
-      return true;
-    } catch (err) {
-      console.error("Login error:", err);
-      toast.error("Login failed. Please check credentials.");
+      const { exp } = jwtDecode(t);
+      return Date.now() < exp * 1000;
+    } catch {
       return false;
     }
   };
 
-  // logout: remove token + user, redirect to /login
+  // 3. login(): call backend, unpack token, decode to user, persist
+  const login = async (username, password) => {
+    try {
+      const { token: newToken } = await userlogin({ username, password });
+      if (!newToken) throw new Error("No token received");
+
+      // Decode user info
+      const { userId, role, foundationId } = jwtDecode(newToken);
+      const newUser = { id: userId, role, foundationId };
+
+      // Persist under ONE key: "auth"
+      localStorage.setItem(
+        "auth",
+        JSON.stringify({ token: newToken, user: newUser })
+      );
+
+      setToken(newToken);
+      setUser(newUser);
+      toast.success("Logged in successfully.");
+      return true;
+    } catch (err) {
+      console.error(err);
+      toast.error("Login failed. Check credentials.");
+      return false;
+    }
+  };
+
+  // 4. logout(): clear EVERYTHING
   const logout = () => {
     localStorage.removeItem("auth");
+    setToken(null);
     setUser(null);
-    toast.info("You have been logged out.");
+    // toast.info("Session ended.");
     window.location.href = "/login";
   };
 
-  // Optionally: if you want to “ping” /validate the token on refresh, you could do that here.
+  // 5. If token is missing/expired, blow away storage & state
   useEffect(() => {
-    // Example: call /auth/validate to confirm token is still valid
-    // If invalid, call logout().
-    // For brevity, skipping actual implementation.
-  }, []);
+    const hadToken = Boolean(token);
+    const nowValid = isTokenValid(token);
+
+    // Only trigger logout if we once had a token that now isn’t valid
+    if (hadToken && !nowValid) {
+      logout();
+    }
+  }, [token, logout]);
+
+  const isAuthenticated = Boolean(user) && isTokenValid(token);
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, login, logout }}>
+    <AuthContext.Provider
+      value={{ token, user, isAuthenticated, login, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );
 };
 
-// Custom hook for easier consumption
 export const useAuth = () => useContext(AuthContext);

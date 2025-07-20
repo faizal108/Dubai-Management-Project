@@ -104,7 +104,6 @@ const Sidebar = () => {
   const navigate = useNavigate();
   function handleLogout() {
     logout();
-    navigate("/login");
   }
 
   return (
