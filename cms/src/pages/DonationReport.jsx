@@ -16,6 +16,7 @@ import { toast } from "react-toastify";
 import { getAllDonations, updatePrintStatus } from "../apis/endpoints";
 import { convertNumberToWords } from "../utils/convertNumberToWords";
 import logoUrl from "../assets/receipt-logo.png";
+import YYIP_Stamp from "../assets/YYIP-STAMP.png";
 import html2canvas from "html2canvas";
 
 // Debounce helper
@@ -204,7 +205,6 @@ const DonationReport = () => {
         : "-";
 
       return `<div class="receipt">
-          <div class="top-bar"></div>
           <div class="header">
             <img src="${logoUrl}" class="logo" alt="YIPP Logo" />
             <div>
@@ -302,22 +302,24 @@ const DonationReport = () => {
                 <div class="label-min"><Strong>for, YOUTH INDIA PEACE PARTY</Strong></div>
               </div>
             </div>
-            <div class="footer">
-              <div class="amount-input" style="display: flex; align-items: center; border: 2px solid #F37021; width: 200px;">
-                <div style="width: 40px; height: 40px; background-color: #F37021!important; color: white; font-size: 24px; display: flex; align-items: center; justify-content: center;">
-                  &#8377;
+            <div class="footer" style="position: relative;display: flex; align-items: center; justify-content: space-between">
+              <div style="display: flex; align-items: center;">
+                  <div class="amount-input" style="display: flex; align-items: center; border: 2px solid #F37021; width: 200px;">
+                  <div style="width: 40px; height: 40px; background-color: #F37021!important; color: white; font-size: 24px; display: flex; align-items: center; justify-content: center;">
+                    &#8377;
+                  </div>
+                  <div style="width: 100%; font-size: 1.3rem; padding: 2px;text-align: center;"><Strong>${
+                    d.amount || ""
+                  }</Strong> /-</div>
                 </div>
-                <div style="width: 100%; font-size: 1.3rem; padding: 2px;text-align: center;"><Strong>${
-                  d.amount || ""
-                }</Strong> /-</div>
+                <div style="font-size:16px;text-align: center;font-weight: bold;line-height: 115%;margin-left: 5px;">
+                  This Donation is Eligible for Exemption<br/>
+                  Under Income Tax Act 1961 U/S 80GGC/80GGB
+                </div>
               </div>
-              <div style="font-size:16px;text-align: center;font-weight: bold;line-height: 115%;margin-left: 5px;">
-                This Donation is Eligible for Exemption<br/>
-                Under Income Tax Act 1961 U/S 80GGC/80GGB
-              </div>
+              <img src="${YYIP_Stamp}" height="130px" width="150px" class="logo" alt="YIPP Logo" style="position: absolute;bottom: -30px; right: 30px;"/>
             </div>
           </div>
-          <div class="bottom-bar"></div>
         </div>`;
     };
 
@@ -551,19 +553,22 @@ const DonationReport = () => {
           </div>
         </div>
 
-        <div class="footer" style="display: flex; align-items: center;">
-              <div class="amount-input" style="display: flex; align-items: center; border: 2px solid #F37021; width: 200px;">
-                <div style="width: 40px; height: 40px; background-color: #F37021!important; color: white; font-size: 24px; display: flex; align-items: center; justify-content: center;">
-                  &#8377;
+        <div class="footer" style="position: relative;display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center;">
+                <div class="amount-input" style="display: flex; align-items: center; border: 2px solid #F37021; width: 200px;">
+                  <div style="width: 40px; height: 40px; background-color: #F37021!important; color: white; font-size: 24px; display: flex; align-items: center; justify-content: center;">
+                    &#8377;
+                  </div>
+                  <div style="width: 100%; font-size: 1.3rem; padding: 2px;text-align: center;"><Strong>${
+                    d.amount || ""
+                  }</Strong> /-</div>
                 </div>
-                <div style="width: 100%; font-size: 1.3rem; padding: 2px;text-align: center;"><Strong>${
-                  d.amount || ""
-                }</Strong> /-</div>
+                <div style="font-size:16px;text-align: center;font-weight: bold;line-height: 115%;margin-left: 5px;">
+                  This Donation is Eligible for Exemption<br/>
+                  Under Income Tax Act 1961 U/S 80GGC/80GGB
+                </div>
               </div>
-              <div style="font-size:16px;text-align: center;font-weight: bold;line-height: 115%;margin-left: 5px;">
-                This Donation is Eligible for Exemption<br/>
-                Under Income Tax Act 1961 U/S 80GGC/80GGB
-              </div>
+              <img src="${YYIP_Stamp}" height="130px" width="130px" class="logo" alt="YIPP Logo" style="position: absolute;bottom: -30px; right: 30px;"/>
             </div>
           </div>
       `;
