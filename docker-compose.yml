@@ -1,35 +1,80 @@
-version: '3.9'
+# Single compose file for both local dev and small AWS hosts (EC2 / Lightsail).
+# All knobs are env-driven; copy .env.example -> .env to override defaults.
+
+x-backend-env: &backend-env
+  NODE_ENV: ${NODE_ENV:-production}
+  PORT: 4000
+  DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-donation_platform}
+  JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
+  JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+  BCRYPT_SALT_ROUNDS: ${BCRYPT_SALT_ROUNDS:-10}
+  # For tunneled demos (Cloudflare/ngrok) the backend sits behind the frontend
+  # nginx reverse-proxy on the same origin, so requests arrive from any host.
+  # Override CORS_ORIGIN in .env if you want to lock this down to a specific URL.
+  CORS_ORIGIN: ${CORS_ORIGIN:-*}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+  RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-300}
+  SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL:-superadmin@example.com}
+  SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD:-ChangeMe@123}
 
 services:
   postgres:
-    image: postgres:14
-    container_name: dubai-donation-postgres
-    restart: always
+    image: postgres:16-alpine
+    container_name: donation-platform-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: root
-      POSTGRES_PASSWORD: root
-      POSTGRES_DB: donation_db
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-donation_platform}
     ports:
-      - "5433:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-donation_platform}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   backend:
-    build: ./server
-    container_name: donation-backend
-    restart: always
+    build:
+      context: ./server
+    image: donation-platform-backend:latest
+    container_name: donation-platform-backend
+    restart: unless-stopped
     ports:
-      - "4000:4000"
-    environment:
-      DATABASE_URL: postgres://root:root@postgres:5432/donation_db
+      - "${BACKEND_PORT:-4000}:4000"
+    environment: *backend-env
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+
+  migrator:
+    image: donation-platform-backend:latest
+    container_name: donation-platform-migrator
+    restart: "no"
+    environment: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["sh", "-c", "npx prisma migrate deploy && node prisma/seed.js"]
 
   frontend:
-    build: ./cms
-    container_name: cms-frontend
+    build:
+      context: ./cms
+      args:
+        # Relative path so the SPA always calls the host it was loaded from
+        # (localhost in dev, the Cloudflare tunnel URL during a remote demo).
+        # The frontend nginx proxies /api/v1 to the backend container.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+    image: donation-platform-frontend:latest
+    container_name: donation-platform-frontend
+    restart: unless-stopped
     ports:
-      - "3000:80"
+      - "${FRONTEND_PORT:-3000}:80"
     depends_on:
       - backend
 

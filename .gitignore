@@ -1,3 +1,44 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+jspm_packages
+
+# Environment files — never commit secrets.
+# Keep template/example files tracked so others know what to set.
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Build / output
+dist
+dist-ssr
+build
+out
+.next
+.nuxt
+.svelte-kit
+.vercel
+.netlify
+*.local
+
+# Vite / bundler caches
+.vite
+.cache
+.parcel-cache
+.turbo
+
+# Prisma — keep schema.prisma and migrations/, ignore local generated artifacts
+server/prisma/*.db
+server/prisma/*.db-journal
+
+# Test / coverage
+coverage
+*.lcov
+.nyc_output
+
 # Logs
 logs
 *.log
@@ -7,18 +48,36 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Stray debug dumps generated at the repo root during dev sessions
+_gstatus.txt
+_post.txt
+check.log
+containers.txt
+health.txt
+loc.txt
+response.txt
+cms/bin-check.log
+cms/count.log
+cms/loc.log
+cms/npm-install.log
+cms/vite-dir.log
 
-# Editor directories and files
+# Docker — keep docker-compose.yml; ignore local overrides
+docker-compose.override.yml
+docker-compose.*.local.yml
+
+# Editor / IDE
 .vscode/*
 !.vscode/extensions.json
 .idea
-.DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini

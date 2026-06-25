@@ -1,13 +1,15 @@
 import React from "react";
 import { Outlet } from "react-router-dom";
-import Sidebar from "../pages/Sidebar";
+import Sidebar from "./Sidebar";
 
 const Layout = () => {
   return (
-    <div className="flex w-full h-screen">
+    <div className="flex h-screen w-full bg-background text-foreground">
       <Sidebar />
-      <main className="flex-1 p-6 bg-gray-50 min-h-screen overflow-y-auto">
-        <Outlet />
+      <main className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-7xl p-6">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

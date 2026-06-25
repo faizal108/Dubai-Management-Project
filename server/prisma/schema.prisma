@@ -1,70 +1,27 @@
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
+// Donation Management Platform — Prisma schema
+// Multi-tenant: tenants are Foundations. Roles: SUPERADMIN, ADMIN, EMPLOYEE, CUSTOMER.
 
 generator client {
   provider = "prisma-client-js"
 }
 
-// Models
-model Foundation {
-  id      String  @id @default(cuid())
-  name    String
-  pan     String  @unique
-  logoUrl String?
-
-  createdAt DateTime @default(now())
-  createdBy String   @default("system")
-  updatedAt DateTime @updatedAt
-  updatedBy String   @default("system")
-
-  users     User[]
-  donors    Donor[]
-  donations Donation[]
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
-model User {
-  id           String @id @default(cuid())
-  username     String @unique
-  passwordHash String
-  role         String
-
-  createdAt DateTime @default(now())
-  createdBy String   @default("system")
-  updatedAt DateTime @updatedAt
-  updatedBy String   @default("system")
-
-  foundation   Foundation @relation(fields: [foundationId], references: [id])
-  foundationId String
-}
-
-model Donor {
-  id        String  @id @default(cuid())
-  fullName  String
-  address1  String
-  address2  String
-  pan       String  @unique
-  phone     String  @default("")
-  country   String
-  state     String
-  city      String
-  isDeleted Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  createdBy String   @default("system")
-  updatedAt DateTime @updatedAt
-  updatedBy String   @default("system")
-
-  foundation   Foundation @relation(fields: [foundationId], references: [id])
-  foundationId String
-  donations    Donation[]
+enum Role {
+  SUPERADMIN
+  ADMIN
+  EMPLOYEE
+  CUSTOMER
 }
 
 enum DonationType {
   CASH
   CHEQUE
   ONLINE
+  UPI
 }
 
 enum DonationStatus {
@@ -72,29 +29,229 @@ enum DonationStatus {
   RECEIVED
 }
 
-model Donation {
-  id               String         @id @default(cuid())
-  donor            Donor          @relation(fields: [donorId], references: [id])
-  donorId          String
-  amount           Float
-  type             DonationType
-  bankName         String
-  utr              String
-  ifsc             String
-  donationDate     DateTime       @default(now())
-  transactionDate  DateTime?
-  donationReceived DonationStatus @default(PENDING)
-  isPrinted        Boolean        @default(false)
-  isDeleted        Boolean        @default(false)
+// Donation category. GENERAL is the default; CSR flags corporate-social-
+// responsibility contributions for reporting / 80G segmentation.
+enum DonationCategory {
+  GENERAL
+  CSR
+}
+
+// Activity lifecycle. PLANNED is the default at creation; transitions are
+// free-form (no state machine) — admins may move between any pair.
+enum ActivityStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  LOGIN
+  LOGOUT
+}
+
+model Foundation {
+  id        String   @id @default(cuid())
+  name      String
+  pan       String   @unique
+  logoUrl   String?
+  isActive  Boolean  @default(true)
+  isDeleted Boolean  @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  // Maximum cash donation accepted per receipt. Default 2000 INR; configurable
+  // per foundation via Settings → Organization. Enforced server-side on
+  // donation create/update for type=CASH.
+  cashLimit              Decimal  @default(2000) @db.Decimal(14, 2)
+
+  // WhatsApp Business toggle + number. When hasWhatsappBusiness is true,
+  // whatsappBusinessNumber must be present (E.164). Drives WhatsApp receipt
+  // delivery and gates the "Send WhatsApp Receipt" checkbox on AddDonation.
+  hasWhatsappBusiness    Boolean  @default(false)
+  whatsappBusinessNumber String?
 
   createdAt DateTime @default(now())
   createdBy String   @default("system")
   updatedAt DateTime @updatedAt
   updatedBy String   @default("system")
 
-  foundation   Foundation @relation(fields: [foundationId], references: [id])
-  foundationId String
+  users      User[]
+  donors     Donor[]
+  donations  Donation[]
+  activities Activity[]
+  auditLogs  AuditLog[]
 
-  @@index([foundationId, donorId])
-  @@index([donorId, isDeleted])
+  @@index([isDeleted, isActive])
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  username      String?  @unique
+  passwordHash  String
+  fullName      String?
+  role          Role
+  // Granular permissions assigned at create/update time. Empty for ADMIN/SUPERADMIN
+  // (they bypass permission checks server-side). Used primarily for EMPLOYEE.
+  permissions   String[] @default([])
+  isActive      Boolean  @default(true)
+  isDeleted     Boolean  @default(false)
+  deletedAt     DateTime?
+  deletedBy     String?
+  lastLoginAt   DateTime?
+
+  foundationId  String?
+  foundation    Foundation? @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  donorId       String?  @unique
+  donor         Donor?   @relation(fields: [donorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  // Donations this user created (employee ownership scoping).
+  createdDonations Donation[] @relation("DonationCreator")
+
+  @@index([foundationId, role])
+  @@index([isDeleted])
+}
+
+model Donor {
+  id           String   @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  fullName  String
+  email     String?
+  phone     String?
+  pan       String
+  address1  String?
+  address2  String?
+  country   String?
+  state     String?
+  city      String?
+  pincode   String?
+
+  isDeleted Boolean  @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  donations Donation[]
+  user      User?
+
+  @@unique([foundationId, pan])
+  @@index([foundationId, isDeleted])
+  @@index([foundationId, fullName])
+}
+
+model Donation {
+  id           String   @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  donorId      String
+  donor        Donor @relation(fields: [donorId], references: [id], onDelete: Restrict)
+
+  // User who created this donation. Used to scope EMPLOYEE visibility when
+  // they don't hold the donation:viewAll permission. Nullable so legacy rows
+  // and SUPERADMIN/system inserts remain valid.
+  createdById  String?
+  createdByUser User?  @relation("DonationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  amount           Decimal       @db.Decimal(14, 2)
+  type             DonationType
+  category         DonationCategory @default(GENERAL)
+  bankName         String?
+  utr              String?
+  ifsc             String?
+  chequeNumber     String?
+  donationDate     DateTime      @default(now())
+  transactionDate  DateTime?
+  donationReceived DonationStatus @default(PENDING)
+  isPrinted        Boolean       @default(false)
+  notes            String?
+
+  // WhatsApp receipt delivery tracking. whatsappOptIn captures donor consent
+  // at create time. whatsappSentAt / whatsappError reflect the most recent
+  // delivery attempt by the notifications worker.
+  whatsappOptIn    Boolean       @default(false)
+  whatsappSentAt   DateTime?
+  whatsappError    String?
+
+  isDeleted Boolean  @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  @@index([foundationId, donorId, isDeleted])
+  @@index([foundationId, donationDate])
+  @@index([foundationId, donationReceived])
+  @@index([foundationId, createdById, isDeleted])
+}
+
+// Narrative logbook of programs / events / initiatives the foundation runs.
+// Phase 1 is descriptive only — no money fields. Budgets and outflow
+// transactions land on a sibling model in Phase 2 with foreign keys onto
+// Activity.id so historical entries here remain valid as the schema grows.
+model Activity {
+  id           String   @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  title       String
+  description String?
+  status      ActivityStatus @default(PLANNED)
+  location    String?
+  startDate   DateTime?
+  endDate     DateTime?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  @@index([foundationId, isDeleted])
+  @@index([foundationId, status])
+  @@index([foundationId, startDate])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  foundationId String?
+  foundation   Foundation? @relation(fields: [foundationId], references: [id], onDelete: SetNull)
+
+  actorId    String?
+  action     AuditAction
+  entity     String
+  entityId   String?
+  before     Json?
+  after      Json?
+  ipAddress  String?
+  userAgent  String?
+
+  createdAt  DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([foundationId, createdAt])
+  @@index([actorId, createdAt])
 }
