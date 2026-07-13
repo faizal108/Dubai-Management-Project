@@ -2,14 +2,123 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =========================================================
+   Design tokens — light mode (default)
+   Values are HSL channels (H S% L%) so utilities can do
+   hsl(var(--primary) / <alpha>) for opacity.
+   ========================================================= */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 222 84% 60%;
+
+  --success: 142 71% 45%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 0 0% 100%;
+  --danger: 0 84% 60%;
+  --danger-foreground: 0 0% 100%;
+
+  /* Accent — defaults to indigo, overridden by [data-accent] below */
+  --primary: 239 84% 67%;
+  --primary-foreground: 0 0% 100%;
+  --primary-hover: 239 75% 58%;
+
+  --radius: 0.5rem;
+
+  color-scheme: light;
+}
+
+/* =========================================================
+   Design tokens — dark mode
+   ========================================================= */
+.dark {
+  --background: 222 47% 7%;
+  --foreground: 210 40% 98%;
+
+  --card: 222 47% 10%;
+  --card-foreground: 210 40% 98%;
+
+  --muted: 217 33% 17%;
+  --muted-foreground: 215 20% 65%;
+
+  --border: 217 33% 20%;
+  --input: 217 33% 20%;
+  --ring: 224 76% 70%;
+
+  --success: 142 71% 45%;
+  --warning: 38 92% 50%;
+  --danger: 0 72% 51%;
+
+  /* Accent (dark) — defaults to indigo */
+  --primary: 234 89% 74%;
+  --primary-foreground: 222 47% 11%;
+  --primary-hover: 234 89% 80%;
+
+  color-scheme: dark;
+}
+
+/* =========================================================
+   Accent palettes — apply via <html data-accent="...">
+   Each accent overrides --primary / --primary-foreground / --primary-hover.
+   Light values live on the base selector, dark values on .dark variant.
+   ========================================================= */
+
+/* Indigo (default) */
+[data-accent="indigo"]        { --primary: 239 84% 67%; --primary-foreground: 0 0% 100%; --primary-hover: 239 75% 58%; }
+.dark[data-accent="indigo"]   { --primary: 234 89% 74%; --primary-foreground: 222 47% 11%; --primary-hover: 234 89% 80%; }
+
+/* Emerald */
+[data-accent="emerald"]       { --primary: 158 64% 40%; --primary-foreground: 0 0% 100%; --primary-hover: 158 64% 33%; }
+.dark[data-accent="emerald"]  { --primary: 152 76% 60%; --primary-foreground: 222 47% 11%; --primary-hover: 152 76% 68%; }
+
+/* Rose */
+[data-accent="rose"]          { --primary: 346 77% 50%; --primary-foreground: 0 0% 100%; --primary-hover: 346 77% 42%; }
+.dark[data-accent="rose"]     { --primary: 351 95% 71%; --primary-foreground: 222 47% 11%; --primary-hover: 351 95% 78%; }
+
+/* Amber */
+[data-accent="amber"]         { --primary: 32 95% 44%; --primary-foreground: 0 0% 100%; --primary-hover: 32 95% 37%; }
+.dark[data-accent="amber"]    { --primary: 43 96% 56%; --primary-foreground: 222 47% 11%; --primary-hover: 43 96% 64%; }
+
+/* Slate */
+[data-accent="slate"]         { --primary: 215 28% 25%; --primary-foreground: 0 0% 100%; --primary-hover: 215 28% 18%; }
+.dark[data-accent="slate"]    { --primary: 210 40% 80%; --primary-foreground: 222 47% 11%; --primary-hover: 210 40% 88%; }
+
+/* =========================================================
+   Base element styles
+   ========================================================= */
+@layer base {
+  *, *::before, *::after { border-color: hsl(var(--border)); }
+
+  html, body, #root { height: 100%; }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Themed focus ring */
+  *:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+}
+
 @layer utilities {
-    /* Hide scrollbar for Chrome, Safari and Opera */
-    .no-scrollbar::-webkit-scrollbar {
-        display: none;
-    }
-   /* Hide scrollbar for IE, Edge and Firefox */
-    .no-scrollbar {
-        -ms-overflow-style: none;  /* IE and Edge */
-        scrollbar-width: none;  /* Firefox */
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
 }

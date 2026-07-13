@@ -1,70 +1,27 @@
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
+// Donation Management Platform G-- Prisma schema
+// Multi-tenant: tenants are Foundations. Roles: SUPERADMIN, ADMIN, EMPLOYEE, CUSTOMER.
 
 generator client {
   provider = "prisma-client-js"
 }
 
-// Models
-model Foundation {
-  id      String  @id @default(cuid())
-  name    String
-  pan     String  @unique
-  logoUrl String?
-
-  createdAt DateTime @default(now())
-  createdBy String   @default("system")
-  updatedAt DateTime @updatedAt
-  updatedBy String   @default("system")
-
-  users     User[]
-  donors    Donor[]
-  donations Donation[]
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
-model User {
-  id           String @id @default(cuid())
-  username     String @unique
-  passwordHash String
-  role         String
-
-  createdAt DateTime @default(now())
-  createdBy String   @default("system")
-  updatedAt DateTime @updatedAt
-  updatedBy String   @default("system")
-
-  foundation   Foundation @relation(fields: [foundationId], references: [id])
-  foundationId String
-}
-
-model Donor {
-  id        String  @id @default(cuid())
-  fullName  String
-  address1  String
-  address2  String
-  pan       String  @unique
-  phone     String  @default("")
-  country   String
-  state     String
-  city      String
-  isDeleted Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  createdBy String   @default("system")
-  updatedAt DateTime @updatedAt
-  updatedBy String   @default("system")
-
-  foundation   Foundation @relation(fields: [foundationId], references: [id])
-  foundationId String
-  donations    Donation[]
+enum Role {
+  SUPERADMIN
+  ADMIN
+  EMPLOYEE
+  CUSTOMER
 }
 
 enum DonationType {
   CASH
   CHEQUE
   ONLINE
+  UPI
 }
 
 enum DonationStatus {
@@ -72,29 +29,561 @@ enum DonationStatus {
   RECEIVED
 }
 
-model Donation {
-  id               String         @id @default(cuid())
-  donor            Donor          @relation(fields: [donorId], references: [id])
-  donorId          String
-  amount           Float
-  type             DonationType
-  bankName         String
-  utr              String
-  ifsc             String
-  donationDate     DateTime       @default(now())
-  transactionDate  DateTime?
-  donationReceived DonationStatus @default(PENDING)
-  isPrinted        Boolean        @default(false)
-  isDeleted        Boolean        @default(false)
+// Donation category. GENERAL is the default; CSR flags corporate-social-
+// responsibility contributions for reporting / 80G segmentation.
+enum DonationCategory {
+  GENERAL
+  CSR
+}
+
+// Activity lifecycle. PLANNED is the default at creation; transitions are
+// free-form (no state machine) G-- admins may move between any pair.
+enum ActivityStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// Expense payment mode is intentionally NOT modeled yet. Phase 7 tracks
+// outflow against categories only; the mode enum will land in a follow-up
+// migration once the accepted domain modes are finalised.
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  LOGIN
+  LOGOUT
+}
+
+// Financial year lifecycle. ACTIVE = open for writes; CLOSED = read-only,
+// no create/update on transactions dated within the window. Close is the
+// terminal state via the normal workflow; REOPEN is a privileged override
+// that flips it back to ACTIVE (audit-logged).
+enum FYStatus {
+  ACTIVE
+  CLOSED
+}
+
+// Bank account purpose. GENERAL / CSR mirror DonationCategory so a donation
+// routes to a bank account of the matching fund stream regardless of the
+// payment mode (CASH / UPI / ONLINE / CHEQUE). Exactly one row per
+// (foundationId, category) may carry isDefault=true.
+enum BankAccountCategory {
+  GENERAL
+  CSR
+}
+
+// Append-only ledger direction. CREDIT increases balance (donations),
+// DEBIT decreases (expenses). Reversals invert the type of the original.
+enum TransactionType {
+  CREDIT
+  DEBIT
+}
+
+model Foundation {
+  id        String   @id @default(cuid())
+  name      String
+  pan       String   @unique
+  logoUrl   String?
+  isActive  Boolean  @default(true)
+  isDeleted Boolean  @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  // Maximum cash donation accepted per receipt. Default 2000 INR; configurable
+  // per foundation via Settings G-- Organization. Enforced server-side on
+  // donation create/update for type=CASH.
+  cashLimit              Decimal  @default(2000) @db.Decimal(14, 2)
+
+  // WhatsApp Business toggle + number. When hasWhatsappBusiness is true,
+  // whatsappBusinessNumber must be present (E.164). Drives WhatsApp receipt
+  // delivery and gates the "Send WhatsApp Receipt" checkbox on AddDonation.
+  hasWhatsappBusiness    Boolean  @default(false)
+  whatsappBusinessNumber String?
+
+  // First month of the foundation's financial year. 1=Jan through 12=Dec.
+  // Defaults to 4 (April) to match the Indian statutory FY. Drives auto-
+  // creation of new FY rows and the FY window used by dashboards / reports.
+  fyStartMonth           Int      @default(4)
 
   createdAt DateTime @default(now())
   createdBy String   @default("system")
   updatedAt DateTime @updatedAt
   updatedBy String   @default("system")
 
-  foundation   Foundation @relation(fields: [foundationId], references: [id])
-  foundationId String
+  users             User[]
+  donors            Donor[]
+  donations         Donation[]
+  activities        Activity[]
+  auditLogs         AuditLog[]
+  attachments       Attachment[]
+  expenseCategories ExpenseCategory[]
+  expenses          Expense[]
+  financialYears    FinancialYear[]
+  bankAccounts      BankAccount[]
+  transactions      Transaction[]
 
-  @@index([foundationId, donorId])
-  @@index([donorId, isDeleted])
+  @@index([isDeleted, isActive])
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  username      String?  @unique
+  passwordHash  String
+  fullName      String?
+  role          Role
+  // Granular permissions assigned at create/update time. Empty for ADMIN/SUPERADMIN
+  // (they bypass permission checks server-side). Used primarily for EMPLOYEE.
+  permissions   String[] @default([])
+  isActive      Boolean  @default(true)
+  isDeleted     Boolean  @default(false)
+  deletedAt     DateTime?
+  deletedBy     String?
+  lastLoginAt   DateTime?
+
+  foundationId  String?
+  foundation    Foundation? @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  donorId       String?  @unique
+  donor         Donor?   @relation(fields: [donorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  // Donations this user created (employee ownership scoping).
+  createdDonations Donation[] @relation("DonationCreator")
+  // Expenses this user created (mirror of the donation scoping pattern).
+  createdExpenses  Expense[]  @relation("ExpenseCreator")
+
+  @@index([foundationId, role])
+  @@index([isDeleted])
+}
+
+model Donor {
+  id           String   @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  fullName  String
+  email     String?
+  // Optional. When present, enforced unique per foundation via a Postgres
+  // partial unique index (see migration: `Donor_foundationId_phone_key`
+  // WHERE phone IS NOT NULL). Prisma cannot express partial unique indexes
+  // declaratively, so uniqueness collisions are caught in the service layer
+  // and surfaced as a friendly 409.
+  phone     String?
+  // Optional to support the phone-only ("Tier 2") donor identifier tier.
+  // Still unique per foundation when set G-- Postgres treats NULLs as distinct.
+  pan       String?
+  address1  String?
+  address2  String?
+  country   String?
+  state     String?
+  city      String?
+  pincode   String?
+
+  isDeleted Boolean  @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  donations Donation[]
+  user      User?
+
+  @@unique([foundationId, pan])
+  @@index([foundationId, isDeleted])
+  @@index([foundationId, fullName])
+  @@index([foundationId, phone])
+}
+
+model Donation {
+  id           String   @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  // Nullable to support anonymous donations (Tier 3): the donation is a
+  // stand-alone ledger entry with no linked donor. When null, the
+  // donorNameSnapshot / donorPhoneSnapshot columns below preserve whatever
+  // identifying details the admin captured at receipt time.
+  donorId      String?
+  donor        Donor?  @relation(fields: [donorId], references: [id], onDelete: SetNull)
+
+  // Immutable copies of the donor's identifying details at the moment this
+  // donation was recorded. Populated for anonymous donations (donorId=null)
+  // and for linked donations where we want the historical name/phone to
+  // survive later donor edits. Not indexed G-- reporting fans out via donorId
+  // when linked, or via full-text scan of snapshots for anonymous rows.
+  donorNameSnapshot  String?
+  donorPhoneSnapshot String?
+
+  // User who created this donation. Used to scope EMPLOYEE visibility when
+  // they don't hold the donation:viewAll permission. Nullable so legacy rows
+  // and SUPERADMIN/system inserts remain valid.
+  createdById  String?
+  createdByUser User?  @relation("DonationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // Financial year this donation falls in. Populated on create via the FY
+  // resolver based on `donationDate` (or `transactionDate` when set); nullable
+  // for the duration of the backfill migration and for historical rows that
+  // predate the FY module. Restrict on delete G-- FYs with linked donations
+  // cannot be removed.
+  financialYearId String?
+  financialYear   FinancialYear? @relation(fields: [financialYearId], references: [id], onDelete: Restrict)
+
+  // Bank account this donation credited. Nullable so pre-ledger rows survive;
+  // required at service-layer for new writes. Restrict on delete keeps the
+  // ledger's back-pointer intact until the donation itself is reversed.
+  bankAccountId String?
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+
+  transactions Transaction[]
+
+  amount           Decimal       @db.Decimal(14, 2)
+  type             DonationType
+  category         DonationCategory @default(GENERAL)
+  bankName         String?
+  utr              String?
+  ifsc             String?
+  chequeNumber     String?
+  donationDate     DateTime      @default(now())
+  transactionDate  DateTime?
+  donationReceived DonationStatus @default(PENDING)
+  isPrinted        Boolean       @default(false)
+  notes            String?
+
+  // WhatsApp receipt delivery tracking. whatsappOptIn captures donor consent
+  // at create time. whatsappSentAt / whatsappError reflect the most recent
+  // delivery attempt by the notifications worker.
+  whatsappOptIn    Boolean       @default(false)
+  whatsappSentAt   DateTime?
+  whatsappError    String?
+
+  isDeleted Boolean  @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  @@index([foundationId, donorId, isDeleted])
+  @@index([foundationId, donationDate])
+  @@index([foundationId, donationReceived])
+  @@index([foundationId, createdById, isDeleted])
+  @@index([foundationId, financialYearId, isDeleted])
+  @@index([foundationId, bankAccountId, isDeleted])
+}
+
+// Polymorphic file attachments. Phase 1 supports donation + donor entities;
+// keyed by (entityType, entityId) rather than concrete FKs so future entity
+// types (activity, foundation-branding, tax-cert) can plug in without a
+// schema change. Storage is provider-agnostic G-- `storageProvider` selects
+// the runtime provider ("local" | "s3") and `storageKey` is opaque to the
+// application (a filesystem path or an S3 object key).
+model Attachment {
+  id           String   @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  entityType   String
+  entityId     String
+
+  storageProvider String @default("local")
+  storageKey      String
+  originalName    String
+  mimeType        String
+  size            Int
+
+  uploadedById String?
+
+  isDeleted Boolean  @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  @@index([foundationId, entityType, entityId, isDeleted])
+  @@index([foundationId, createdAt])
+}
+
+// Narrative logbook of programs / events / initiatives the foundation runs.
+// Phase 1 is descriptive only G-- no money fields. Budgets and outflow
+// transactions land on a sibling model in Phase 2 with foreign keys onto
+// Activity.id so historical entries here remain valid as the schema grows.
+model Activity {
+  id           String   @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  title       String
+  description String?
+  status      ActivityStatus @default(PLANNED)
+  location    String?
+  startDate   DateTime?
+  endDate     DateTime?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  expenses Expense[]
+
+  @@index([foundationId, isDeleted])
+  @@index([foundationId, status])
+  @@index([foundationId, startDate])
+}
+
+// Expense categorisation. Names are unique per foundation among *active*
+// rows G-- the partial unique index lives in the migration SQL so soft-
+// deleted rows do not block re-use of the same label.
+model ExpenseCategory {
+  id           String     @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  name        String
+  description String?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  expenses Expense[]
+
+  @@index([foundationId, isDeleted])
+  @@index([foundationId, name])
+}
+
+// Foundation cash outflow. Amount stored as Decimal(14,2) to match Donation.
+// activityId is optional G-- many expenses are pure overhead with no program
+// link. Payment mode is deferred to a later migration.
+model Expense {
+  id           String     @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  categoryId String
+  category   ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  activityId String?
+  activity   Activity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
+
+  // User who created this expense. Used to scope EMPLOYEE visibility when
+  // they don't hold the expense:viewAll permission. Nullable so legacy /
+  // system-inserted rows remain valid.
+  createdById   String?
+  createdByUser User?   @relation("ExpenseCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // Financial year this expense falls in. Populated on create via the FY
+  // resolver from `paidOn`; nullable for backfill. Restrict on delete.
+  financialYearId String?
+  financialYear   FinancialYear? @relation(fields: [financialYearId], references: [id], onDelete: Restrict)
+
+  // Bank account this expense debited. Nullable for pre-ledger rows; required
+  // at service-layer on new writes. Restrict on delete G-- the ledger's back-
+  // pointer stays valid until the expense itself is reversed.
+  bankAccountId String?
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+
+  transactions Transaction[]
+
+  amount      Decimal  @db.Decimal(14, 2)
+  paidTo      String
+  paidOn      DateTime
+  referenceNo String?
+  notes       String?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  @@index([foundationId, isDeleted])
+  @@index([foundationId, paidOn])
+  @@index([foundationId, categoryId, isDeleted])
+  @@index([foundationId, activityId, isDeleted])
+  @@index([foundationId, createdById, isDeleted])
+  @@index([foundationId, financialYearId, isDeleted])
+  @@index([foundationId, bankAccountId, isDeleted])
+}
+
+// Financial year for a foundation. Windows are half-open [startDate, endDate)
+// on `donationDate` / `paidOn`. Status = ACTIVE means open for writes; CLOSED
+// makes the window read-only (service layer enforces via ensureFyWritable).
+// Windows must not overlap per foundation G-- enforced by a range-exclusion
+// constraint in migration SQL (Postgres cannot express it in Prisma).
+model FinancialYear {
+  id           String     @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  // Human-readable, tenant-visible identifier, e.g. "FY 2025-26". Not unique
+  // globally G-- unique per foundation (partial unique index in migration SQL
+  // to exclude soft-deleted rows).
+  label     String
+  startDate DateTime
+  endDate   DateTime
+  status    FYStatus @default(ACTIVE)
+
+  // Close audit G-- populated when status flips to CLOSED. Cleared on reopen.
+  closedAt DateTime?
+  closedBy String?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  donations    Donation[]
+  expenses     Expense[]
+  transactions Transaction[]
+
+  @@index([foundationId, isDeleted])
+  @@index([foundationId, status])
+  @@index([foundationId, startDate])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  foundationId String?
+  foundation   Foundation? @relation(fields: [foundationId], references: [id], onDelete: SetNull)
+
+  actorId    String?
+  action     AuditAction
+  entity     String
+  entityId   String?
+  before     Json?
+  after      Json?
+  ipAddress  String?
+  userAgent  String?
+
+  createdAt  DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([foundationId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+// Bank account bucket per foundation. Category names the fund purpose
+// (GENERAL / CSR) so donations route to the matching stream. `isDefault` is enforced at
+// most-one-per-(foundationId, category) via a partial unique index in the
+// migration SQL (Prisma can't express `WHERE isDefault = true`).
+model BankAccount {
+  id           String     @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  label         String
+  category      BankAccountCategory
+  bankName      String?
+  accountNumber String?
+  ifsc          String?
+  upiId         String?
+
+  // Running balance maintained by the ledger. `openingBalance` seeds the
+  // account at creation; `balance` is updated atomically inside every
+  // postTransaction / reverseTransactionFor call.
+  openingBalance Decimal @default(0) @db.Decimal(14, 2)
+  balance        Decimal @default(0) @db.Decimal(14, 2)
+
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+  notes     String?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  donations    Donation[]
+  expenses     Expense[]
+  transactions Transaction[]
+
+  @@index([foundationId, isDeleted])
+  @@index([foundationId, category, isDeleted])
+  @@index([foundationId, isDefault])
+}
+
+// Append-only ledger row. No isDeleted / updatedAt G-- corrections happen by
+// inserting a reversing row that carries `reversalOf` pointing at the
+// original id. `balanceAfter` snapshots the account balance after this row
+// was applied, so historical reporting doesn't need to re-sum the chain.
+model Transaction {
+  id            String      @id @default(cuid())
+  foundationId  String
+  foundation    Foundation  @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+  bankAccountId String
+  bankAccount   BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+
+  financialYearId String?
+  financialYear   FinancialYear? @relation(fields: [financialYearId], references: [id], onDelete: Restrict)
+
+  type         TransactionType
+  amount       Decimal         @db.Decimal(14, 2)
+  balanceAfter Decimal         @db.Decimal(14, 2)
+
+  // Authoritative source pointer. entityType is a string ("donation" /
+  // "expense") so future entity types don't require a schema migration.
+  // donationId / expenseId are the typed back-references and SET NULL on
+  // source delete G-- the ledger itself remains intact.
+  entityType String
+  entityId   String
+  donationId String?
+  donation   Donation? @relation(fields: [donationId], references: [id], onDelete: SetNull)
+  expenseId  String?
+  expense    Expense?  @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+
+  occurredAt  DateTime @default(now())
+  description String?
+
+  // Reversal chain. `reversalOf` points from the reversing row back to the
+  // original; `reversedBy` is populated on the original once a reversal
+  // exists, so we can tell at-a-glance whether a row is still effective.
+  reversalOf String?
+  reversedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+
+  @@index([foundationId, bankAccountId, occurredAt])
+  @@index([foundationId, financialYearId, occurredAt])
+  @@index([foundationId, entityType, entityId])
+  @@index([donationId])
+  @@index([expenseId])
 }

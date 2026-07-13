@@ -1,32 +1,39 @@
-// src/index.js
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import authRoutes from './routes/auth.js';
-import donorRoutes from './routes/donor.js'; 
-import donationRoutes from './routes/donation.js';
+import { createApp } from "./app.js";
+import { env } from "./lib/env.js";
+import { logger } from "./lib/logger.js";
+import { disconnectPrisma, prisma } from "./lib/prisma.js";
 
-import { PrismaClient } from '@prisma/client';
+async function main() {
+  // Fail fast if the DB is unreachable.
+  await prisma.$connect();
 
-const app = express();
-const prisma = new PrismaClient();
+  const app = createApp();
+  const server = app.listen(env.PORT, () => {
+    logger.info({ port: env.PORT, env: env.NODE_ENV }, "api listening");
+  });
 
-app.use(cors());
-app.use(express.json());
+  const shutdown = async (signal) => {
+    logger.info({ signal }, "shutting down");
+    server.close(async () => {
+      await disconnectPrisma();
+      process.exit(0);
+    });
+    // Hard exit after 10s if graceful shutdown stalls.
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
 
-// Mount routes
-app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/donors', donorRoutes);
-app.use('/api/v1/donations', donationRoutes);
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("unhandledRejection", (reason) => {
+    logger.error({ reason }, "unhandledRejection");
+  });
+  process.on("uncaughtException", (err) => {
+    logger.fatal({ err }, "uncaughtException");
+    process.exit(1);
+  });
+}
 
-
-// Health-check
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
-
-// Global error handler (if you have one)
-// app.use(errorHandler);
-
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+main().catch((err) => {
+  logger.fatal({ err }, "failed to start server");
+  process.exit(1);
 });

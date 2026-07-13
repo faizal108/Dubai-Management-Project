@@ -1,27 +1,47 @@
-// src/middleware/authenticate.js
-import jwt from 'jsonwebtoken';
+import jwt from "jsonwebtoken";
+import { env } from "../lib/env.js";
+import { ApiError } from "../lib/apiError.js";
+import { setContext } from "../lib/requestContext.js";
+import { prisma } from "../lib/prisma.js";
 
-const JWT_SECRET = process.env.JWT_SECRET;
-
-export default function authenticate(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res
-      .status(401)
-      .json({ error: 'Missing or invalid Authorization header' });
-  }
-
-  const token = authHeader.split(' ')[1];
+export async function authenticate(req, _res, next) {
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    // e.g. payload = { userId: 'xxx', role: 'admin', foundationId: 'yyy', iat, exp }
-    req.user = {
-      id: payload.userId,
-      role: payload.role,
-      foundationId: payload.foundationId,
-    };
-    return next();
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith("Bearer ")) {
+      throw ApiError.unauthorized("Missing or invalid Authorization header");
+    }
+    const token = header.slice(7).trim();
+    let payload;
+    try {
+      payload = jwt.verify(token, env.JWT_SECRET);
+    } catch {
+      throw ApiError.unauthorized("Invalid or expired token");
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        foundationId: true,
+        permissions: true,
+        isActive: true,
+        isDeleted: true,
+      },
+    });
+    if (!user || user.isDeleted || !user.isActive) {
+      throw ApiError.unauthorized("Account is not active");
+    }
+
+    req.user = user;
+    setContext({
+      userId: user.id,
+      foundationId: user.foundationId,
+      role: user.role,
+    });
+    next();
   } catch (err) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+    next(err);
   }
 }

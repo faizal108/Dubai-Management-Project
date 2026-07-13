@@ -12,13 +12,21 @@ export default function HomeRedirect() {
   }
 
   switch (user.role) {
+    case ROLES.SUPERADMIN:
+      // SUPERADMIN's primary surface is foundation management.
+      return <Navigate to="/foundations" replace />;
+
     case ROLES.ADMIN:
       return <Navigate to="/dashboard" replace />;
 
-    case ROLES.USER:
-      return <Navigate to="/donor/add" replace />;
+    case ROLES.EMPLOYEE:
+      // Employees default to All Donations — their main daily surface.
+      return <Navigate to="/donation/search" replace />;
 
-    // add more roles here as you grow
+    case ROLES.CUSTOMER:
+      // Customer-facing surfaces land here later (Phase E).
+      return <Navigate to="/unauthorized" replace />;
+
     default:
       return <Navigate to="/unauthorized" replace />;
   }

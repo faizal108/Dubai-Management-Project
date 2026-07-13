@@ -1,5 +1,7 @@
+// Role values mirror the backend's UserRole enum (server/prisma/schema.prisma).
 export const ROLES = {
-  ADMIN: "admin",
-  USER: "user",
-  SUPERADMIN: "superadmin",
+  SUPERADMIN: "SUPERADMIN",
+  ADMIN: "ADMIN",
+  EMPLOYEE: "EMPLOYEE",
+  CUSTOMER: "CUSTOMER",
 };

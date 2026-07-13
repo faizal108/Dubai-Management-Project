@@ -4,7 +4,28 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React</title>
+    <title>Donation Management Platform</title>
+    <script>
+      // Pre-paint theme application — avoids flash-of-wrong-theme
+      (function () {
+        try {
+          var raw = localStorage.getItem("ui-theme");
+          var parsed = raw ? JSON.parse(raw) : {};
+          var mode = parsed.mode || "system";
+          var accent = parsed.accent || "indigo";
+          var isDark =
+            mode === "dark" ||
+            (mode === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var html = document.documentElement;
+          if (isDark) html.classList.add("dark");
+          html.setAttribute("data-accent", accent);
+          html.style.colorScheme = isDark ? "dark" : "light";
+        } catch (e) {
+          /* ignore */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
