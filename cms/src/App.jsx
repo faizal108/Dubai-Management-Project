@@ -33,9 +33,8 @@ const AuditLog = lazy(() => import("./features/audits/pages/AuditLog"));
 const SettingsPage = lazy(() => import("./features/settings/pages/SettingsPage"));
 const ManageActivities = lazy(() => import("./features/activities/pages/ManageActivities"));
 const ManageExpenses = lazy(() => import("./features/expenses/pages/ManageExpenses"));
-const ManageExpenseCategories = lazy(() =>
-  import("./features/expenses/pages/ManageExpenseCategories")
-);
+const ManageCategories = lazy(() => import("./features/categories/pages/ManageCategories"));
+const ManageOtherIncome = lazy(() => import("./features/otherIncome/pages/ManageOtherIncome"));
 const ManageFinancialYears = lazy(() =>
   import("./features/financialYears/pages/ManageFinancialYears")
 );
@@ -54,10 +53,16 @@ const IncomeLedger = lazy(() =>
 const ExpenseLedger = lazy(() =>
   import("./features/accounting/pages/ExpenseLedger")
 );
+const OtherIncomeLedger = lazy(() =>
+  import("./features/accounting/pages/OtherIncomeLedger")
+);
 const CashBook = lazy(() => import("./features/accounting/pages/CashBook"));
 const BankBook = lazy(() => import("./features/accounting/pages/BankBook"));
 const AccountingReports = lazy(() =>
   import("./features/accounting/pages/AccountingReports")
+);
+const ManageTransfers = lazy(() =>
+  import("./features/transfers/pages/ManageTransfers")
 );
 
 // Themed full-page fallback while a lazy chunk is loading.
@@ -227,14 +232,26 @@ const App = () => {
                 }
               />
               <Route
-                path="expense-categories"
+                path="categories"
                 element={
                   <PrivateRoute
                     roles={[ROLES.ADMIN, ROLES.SUPERADMIN]}
-                    perm={PERMISSIONS.EXPENSE_CATEGORY_MANAGE}
+                    perm={PERMISSIONS.CATEGORY_MANAGE}
                   >
                     <RouteBoundary>
-                      <ManageExpenseCategories />
+                      <ManageCategories />
+                    </RouteBoundary>
+                  </PrivateRoute>
+                }
+              />
+              {/* Legacy path kept alive → unified Categories screen. */}
+              <Route path="expense-categories" element={<Navigate to="/categories" replace />} />
+              <Route
+                path="other-income"
+                element={
+                  <PrivateRoute roles={[ROLES.ADMIN, ROLES.SUPERADMIN, ROLES.EMPLOYEE]}>
+                    <RouteBoundary>
+                      <ManageOtherIncome />
                     </RouteBoundary>
                   </PrivateRoute>
                 }
@@ -318,6 +335,19 @@ const App = () => {
                 }
               />
               <Route
+                path="accounting/other-income"
+                element={
+                  <PrivateRoute
+                    roles={[ROLES.ADMIN, ROLES.SUPERADMIN, ROLES.EMPLOYEE]}
+                    perm={PERMISSIONS.DASHBOARD_VIEW}
+                  >
+                    <RouteBoundary>
+                      <OtherIncomeLedger />
+                    </RouteBoundary>
+                  </PrivateRoute>
+                }
+              />
+              <Route
                 path="accounting/cash-book"
                 element={
                   <PrivateRoute
@@ -352,6 +382,19 @@ const App = () => {
                   >
                     <RouteBoundary>
                       <AccountingReports />
+                    </RouteBoundary>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="accounting/transfers"
+                element={
+                  <PrivateRoute
+                    roles={[ROLES.ADMIN, ROLES.SUPERADMIN, ROLES.EMPLOYEE]}
+                    perm={PERMISSIONS.BANK_ACCOUNT_VIEW}
+                  >
+                    <RouteBoundary>
+                      <ManageTransfers />
                     </RouteBoundary>
                   </PrivateRoute>
                 }

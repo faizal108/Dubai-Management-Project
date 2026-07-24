@@ -1,6 +1,22 @@
 import { prisma } from "../../lib/prisma.js";
 import { toPrismaPaging, buildPage } from "../../lib/pagination.js";
+import { buildOrderBy, applyColumnFilters } from "../../lib/listQuery.js";
 import { tenantWhere } from "../../lib/tenantScope.js";
+
+const TRANSACTION_FILTERS = {
+  description: { type: "text" },
+};
+
+const TRANSACTION_SORT = {
+  map: {
+    occurredAt: "occurredAt",
+    amount: "amount",
+    type: "type",
+    balanceAfter: "balanceAfter",
+    createdAt: "createdAt",
+  },
+  fallback: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+};
 
 const PUBLIC_FIELDS = {
   id: true,
@@ -24,13 +40,21 @@ const PUBLIC_FIELDS = {
 export function buildWhere(user, query) {
   const {
     foundationId, bankAccountId, financialYearId,
-    type, entityType, accountKind, from, to,
+    type, entityType, accountKind, from, to, q,
   } = query;
   const where = { ...tenantWhere(user, foundationId) };
   if (bankAccountId) where.bankAccountId = bankAccountId;
   if (financialYearId) where.financialYearId = financialYearId;
   if (type) where.type = type;
   if (entityType) where.entityType = entityType;
+  // Global search across the ledger row's own text (description) and the
+  // linked account label.
+  if (q) {
+    where.OR = [
+      { description: { contains: q, mode: "insensitive" } },
+      { bankAccount: { is: { label: { contains: q, mode: "insensitive" } } } },
+    ];
+  }
   // Cash vs bank split is derived from BankAccount.accountNumber. Prisma
   // relation filters translate to an EXISTS join, so the ledger stays
   // scoped without a denormalized column.
@@ -49,6 +73,8 @@ export function buildWhere(user, query) {
 
 export async function listTransactions(user, query) {
   const where = buildWhere(user, query);
+  applyColumnFilters(where, query, TRANSACTION_FILTERS);
+  const orderBy = buildOrderBy(query.sortBy, query.sortDir, TRANSACTION_SORT);
   const paging = toPrismaPaging(query);
   const [items, total] = await Promise.all([
     prisma.transaction.findMany({
@@ -64,7 +90,7 @@ export async function listTransactions(user, query) {
           },
         },
       },
-      orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+      orderBy,
       ...paging,
     }),
     prisma.transaction.count({ where }),

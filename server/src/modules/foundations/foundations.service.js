@@ -9,6 +9,13 @@ const PUBLIC_FIELDS = {
   name: true,
   pan: true,
   logoUrl: true,
+  signatureUrl: true,
+  receiptName: true,
+  registrationNumber: true,
+  email: true,
+  address: true,
+  receiptTemplateId: true,
+  receiptSettings: true,
   isActive: true,
   isDeleted: true,
   deletedAt: true,
@@ -19,6 +26,14 @@ const PUBLIC_FIELDS = {
   createdAt: true,
   updatedAt: true,
 };
+
+// Audit snapshots elide the base64 image blobs (logo / signature) so the
+// AuditLog stays lean — we record only whether an image is set, not its bytes.
+function auditSnapshot(row) {
+  if (!row) return row;
+  const redact = (v) => (v ? "[image]" : v);
+  return { ...row, logoUrl: redact(row.logoUrl), signatureUrl: redact(row.signatureUrl) };
+}
 
 function buildWhere({ q, includeDeleted }) {
   const where = {};
@@ -68,7 +83,7 @@ export async function createFoundation(input) {
     action: "CREATE",
     entity: "Foundation",
     entityId: created.id,
-    after: created,
+    after: auditSnapshot(created),
     foundationId: created.id,
   });
   return created;
@@ -90,8 +105,8 @@ export async function updateFoundation(id, input) {
     action: "UPDATE",
     entity: "Foundation",
     entityId: id,
-    before,
-    after,
+    before: auditSnapshot(before),
+    after: auditSnapshot(after),
     foundationId: id,
   });
   return after;
@@ -109,7 +124,7 @@ export async function deleteFoundation(id) {
     action: "DELETE",
     entity: "Foundation",
     entityId: id,
-    before,
+    before: auditSnapshot(before),
     foundationId: id,
   });
 }
@@ -131,8 +146,8 @@ export async function restoreFoundation(id) {
     action: "RESTORE",
     entity: "Foundation",
     entityId: id,
-    before,
-    after,
+    before: auditSnapshot(before),
+    after: auditSnapshot(after),
     foundationId: id,
   });
   return after;

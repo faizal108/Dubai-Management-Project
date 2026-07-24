@@ -83,11 +83,53 @@ enum TransactionType {
   DEBIT
 }
 
+// Internal money movement between the foundation's own buckets. Transfers are
+// NOT income or expense G-- they are excluded from donation/expense
+// aggregation in accounting.service.js. FD kinds additionally open/close a
+// FixedDeposit. CASH is a BankAccount with accountNumber = null.
+enum TransferKind {
+  CASH_TO_BANK
+  BANK_TO_CASH
+  BANK_TO_FD
+  FD_TO_BANK
+}
+
+// Discriminator for the unified Category model. INCOME tags donations, EXPENSE
+// tags expenses, OTHER_INCOME tags in-kind receipts.
+enum CategoryKind {
+  INCOME
+  EXPENSE
+  OTHER_INCOME
+}
+
+// Fixed-deposit lifecycle. ACTIVE = principal is parked; CLOSED = matured /
+// returned to a bank account (returnAmount + closedOn populated). Interest
+// earned is derived (returnAmount - principal), never stored.
+enum FixedDepositStatus {
+  ACTIVE
+  CLOSED
+}
+
 model Foundation {
   id        String   @id @default(cuid())
   name      String
   pan       String   @unique
-  logoUrl   String?
+  // Branding + receipt profile, editable by ADMIN via /foundations/me. logoUrl
+  // and signatureUrl hold either an http(s) URL or a base64 `data:` URL (images
+  // are resized client-side before upload, so they stay small). The remaining
+  // fields drive the donation receipt header/footer, falling back to bundled
+  // defaults when unset.
+  logoUrl            String?
+  signatureUrl       String?
+  receiptName        String?
+  registrationNumber String?
+  email              String?
+  address            String?
+  // Receipt builder: the active template id (code-defined registry on the
+  // client) + a JSON bag of per-foundation options (accent color, font,
+  // editable text blocks, field toggles). Both editable by ADMIN via /me.
+  receiptTemplateId  String  @default("classic")
+  receiptSettings    Json?
   isActive  Boolean  @default(true)
   isDeleted Boolean  @default(false)
   deletedAt DateTime?
@@ -120,11 +162,14 @@ model Foundation {
   activities        Activity[]
   auditLogs         AuditLog[]
   attachments       Attachment[]
-  expenseCategories ExpenseCategory[]
+  categories        Category[]
   expenses          Expense[]
+  otherIncomes      OtherIncome[]
   financialYears    FinancialYear[]
   bankAccounts      BankAccount[]
   transactions      Transaction[]
+  transfers         Transfer[]
+  fixedDeposits     FixedDeposit[]
 
   @@index([isDeleted, isActive])
 }
@@ -160,6 +205,8 @@ model User {
   createdDonations Donation[] @relation("DonationCreator")
   // Expenses this user created (mirror of the donation scoping pattern).
   createdExpenses  Expense[]  @relation("ExpenseCreator")
+  // In-kind receipts this user recorded (same ownership scoping pattern).
+  createdOtherIncomes OtherIncome[] @relation("OtherIncomeCreator")
 
   @@index([foundationId, role])
   @@index([isDeleted])
@@ -198,6 +245,7 @@ model Donor {
   updatedBy String   @default("system")
 
   donations Donation[]
+  otherIncomes OtherIncome[]
   user      User?
 
   @@unique([foundationId, pan])
@@ -248,6 +296,11 @@ model Donation {
 
   transactions Transaction[]
 
+  // Free-form income category (kind=INCOME), e.g. Zakat / Sadaqah / Building
+  // Fund. Optional and orthogonal to the GENERAL/CSR fund `category` enum below.
+  incomeCategoryId String?
+  incomeCategory   Category? @relation(fields: [incomeCategoryId], references: [id], onDelete: Restrict)
+
   amount           Decimal       @db.Decimal(14, 2)
   type             DonationType
   category         DonationCategory @default(GENERAL)
@@ -283,6 +336,7 @@ model Donation {
   @@index([foundationId, createdById, isDeleted])
   @@index([foundationId, financialYearId, isDeleted])
   @@index([foundationId, bankAccountId, isDeleted])
+  @@index([foundationId, incomeCategoryId, isDeleted])
 }
 
 // Polymorphic file attachments. Phase 1 supports donation + donor entities;
@@ -345,21 +399,24 @@ model Activity {
   updatedAt DateTime @updatedAt
   updatedBy String   @default("system")
 
-  expenses Expense[]
+  expenses     Expense[]
+  otherIncomes OtherIncome[]
 
   @@index([foundationId, isDeleted])
   @@index([foundationId, status])
   @@index([foundationId, startDate])
 }
 
-// Expense categorisation. Names are unique per foundation among *active*
-// rows G-- the partial unique index lives in the migration SQL so soft-
-// deleted rows do not block re-use of the same label.
-model ExpenseCategory {
+// Unified categorisation for income (donations), expenses, and in-kind other
+// income. `kind` discriminates the three streams. Names are unique per
+// (foundation, kind) among *active* rows G-- the partial unique index lives in
+// the migration SQL so soft-deleted rows don't block re-use of a label.
+model Category {
   id           String     @id @default(cuid())
   foundationId String
   foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
 
+  kind        CategoryKind
   name        String
   description String?
 
@@ -372,9 +429,11 @@ model ExpenseCategory {
   updatedAt DateTime @updatedAt
   updatedBy String   @default("system")
 
-  expenses Expense[]
+  expenses     Expense[]
+  donations    Donation[]
+  otherIncomes OtherIncome[]
 
-  @@index([foundationId, isDeleted])
+  @@index([foundationId, kind, isDeleted])
   @@index([foundationId, name])
 }
 
@@ -387,7 +446,7 @@ model Expense {
   foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
 
   categoryId String
-  category   ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   activityId String?
   activity   Activity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
@@ -466,9 +525,12 @@ model FinancialYear {
   updatedAt DateTime @updatedAt
   updatedBy String   @default("system")
 
-  donations    Donation[]
-  expenses     Expense[]
-  transactions Transaction[]
+  donations     Donation[]
+  expenses      Expense[]
+  otherIncomes  OtherIncome[]
+  transactions  Transaction[]
+  transfers     Transfer[]
+  fixedDeposits FixedDeposit[]
 
   @@index([foundationId, isDeleted])
   @@index([foundationId, status])
@@ -535,6 +597,13 @@ model BankAccount {
   expenses     Expense[]
   transactions Transaction[]
 
+  // Transfers moving money out of / into this account (cash <-> bank legs).
+  transfersFrom Transfer[] @relation("TransferFrom")
+  transfersTo   Transfer[] @relation("TransferTo")
+  // Fixed deposits funded from this account / returned to this account.
+  fdSourced  FixedDeposit[] @relation("FdSource")
+  fdReturned FixedDeposit[] @relation("FdClosedTo")
+
   @@index([foundationId, isDeleted])
   @@index([foundationId, category, isDeleted])
   @@index([foundationId, isDefault])
@@ -586,4 +655,153 @@ model Transaction {
   @@index([foundationId, entityType, entityId])
   @@index([donationId])
   @@index([expenseId])
+}
+
+// Fixed deposit. Opened by a BANK_TO_FD transfer (money leaves sourceBankAccount)
+// and closed by an FD_TO_BANK transfer (returnAmount lands in closedToBankAccount).
+// The FD itself is the ledger for the parked money G-- no Transaction row sits on
+// the FD, only on the bank side. Interest earned is derived: returnAmount - principal.
+model FixedDeposit {
+  id           String     @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  financialYearId String?
+  financialYear   FinancialYear? @relation(fields: [financialYearId], references: [id], onDelete: Restrict)
+
+  label         String
+  category      BankAccountCategory
+  bankName      String?
+  receiptNumber String?
+
+  principal    Decimal  @db.Decimal(14, 2)
+  interestRate Decimal? @db.Decimal(5, 2)
+  openedOn     DateTime
+  maturityDate DateTime?
+
+  // Bank account the principal was drawn from when the FD was opened.
+  sourceBankAccountId String
+  sourceBankAccount   BankAccount @relation("FdSource", fields: [sourceBankAccountId], references: [id], onDelete: Restrict)
+
+  status FixedDepositStatus @default(ACTIVE)
+
+  // Populated when the FD is returned (FD_TO_BANK). returnAmount is the matured
+  // value credited to closedToBankAccount; interest = returnAmount - principal.
+  returnAmount         Decimal?     @db.Decimal(14, 2)
+  closedOn             DateTime?
+  closedToBankAccountId String?
+  closedToBankAccount  BankAccount? @relation("FdClosedTo", fields: [closedToBankAccountId], references: [id], onDelete: Restrict)
+
+  notes String?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  transfers Transfer[]
+
+  @@index([foundationId, isDeleted])
+  @@index([foundationId, status])
+  @@index([foundationId, sourceBankAccountId])
+}
+
+// Internal money movement. A transfer owns its ledger legs via the polymorphic
+// (entityType="Transfer", entityId=transfer.id) pointer on Transaction G-- cash<->bank
+// transfers post two legs (DEBIT source + CREDIT destination); FD transfers post one
+// leg on the bank side and open/close the linked FixedDeposit. amount is the moved
+// value (for FD_TO_BANK it is the matured returnAmount credited to the bank).
+model Transfer {
+  id           String     @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  financialYearId String?
+  financialYear   FinancialYear? @relation(fields: [financialYearId], references: [id], onDelete: Restrict)
+
+  kind   TransferKind
+  amount Decimal @db.Decimal(14, 2)
+
+  fromBankAccountId String?
+  fromBankAccount   BankAccount? @relation("TransferFrom", fields: [fromBankAccountId], references: [id], onDelete: Restrict)
+  toBankAccountId   String?
+  toBankAccount     BankAccount? @relation("TransferTo", fields: [toBankAccountId], references: [id], onDelete: Restrict)
+
+  fixedDepositId String?
+  fixedDeposit   FixedDeposit? @relation(fields: [fixedDepositId], references: [id], onDelete: Restrict)
+
+  occurredAt DateTime @default(now())
+  notes      String?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  @@index([foundationId, isDeleted])
+  @@index([foundationId, kind, isDeleted])
+  @@index([foundationId, occurredAt])
+  @@index([fixedDepositId])
+}
+
+// In-kind / non-cash receipts (e.g. oil boxes, wheat bags). Deliberately NOT
+// linked to a bank account or the Transaction ledger G-- these never move money,
+// so they never affect balances or cash income. `estimatedValue` is an optional
+// informational valuation only. `quantity` + `unit` describe the goods received.
+model OtherIncome {
+  id           String     @id @default(cuid())
+  foundationId String
+  foundation   Foundation @relation(fields: [foundationId], references: [id], onDelete: Restrict)
+
+  // Financial year is resolved from receivedOn for reporting parity; no closed-
+  // FY write guard applies (no money moves).
+  financialYearId String?
+  financialYear   FinancialYear? @relation(fields: [financialYearId], references: [id], onDelete: Restrict)
+
+  // Optional free-form category (kind = OTHER_INCOME).
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  // Donor is optional: link an existing donor, or capture a name inline. The
+  // snapshot preserves the name even if the donor is later edited/removed.
+  donorId           String?
+  donor             Donor?  @relation(fields: [donorId], references: [id], onDelete: SetNull)
+  donorNameSnapshot String?
+
+  itemName      String
+  quantity      Decimal  @default(1) @db.Decimal(12, 2)
+  unit          String?
+  estimatedValue Decimal? @db.Decimal(14, 2)
+  receivedOn    DateTime
+
+  activityId String?
+  activity   Activity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
+
+  createdById   String?
+  createdByUser User?   @relation("OtherIncomeCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  notes String?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String   @default("system")
+  updatedAt DateTime @updatedAt
+  updatedBy String   @default("system")
+
+  @@index([foundationId, isDeleted])
+  @@index([foundationId, receivedOn])
+  @@index([foundationId, categoryId, isDeleted])
+  @@index([foundationId, createdById, isDeleted])
+  @@index([foundationId, financialYearId, isDeleted])
 }

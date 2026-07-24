@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { paginationQuerySchema } from "../../lib/pagination.js";
+import { sortSchema, textFilter } from "../../lib/listQuery.js";
 
 const DONATION_TYPES = ["CASH", "CHEQUE", "ONLINE", "UPI"];
 const DONATION_STATUSES = ["PENDING", "RECEIVED"];
@@ -82,6 +83,8 @@ const baseFields = {
   // CHEQUE/ONLINE     BANK default). Required at posting time (i.e. once the
   // donation is RECEIVED); PENDING rows may carry it or leave it null.
   bankAccountId: z.string().min(1).optional(),
+  // Optional free-form income category (kind=INCOME).
+  incomeCategoryId: z.string().min(1).optional().or(blankToUndef),
 };
 
 // Conditional requirements per donation type. UPI is treated like ONLINE     a
@@ -137,6 +140,7 @@ export const updateDonationSchema = z
     // posts. Once RECEIVED, the service blocks edits entirely so the ledger
     // pointer stays immutable post-post.
     bankAccountId: z.string().min(1).nullable().optional(),
+    incomeCategoryId: z.string().min(1).nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, {
     message: "At least one field must be provided",
@@ -171,4 +175,12 @@ export const listDonationsQuerySchema = paginationQuerySchema.extend({
   whatsapp: z.enum(["SENT", "PENDING", "FAILED", "NONE"]).optional(),
   minAmount: amountFilterSchema,
   maxAmount: amountFilterSchema,
+  incomeCategoryId: z.string().min(1).optional(),
+  // Per-column text filters (DataTable). Compose with the global `q`.
+  donorName: textFilter,
+  pan: textFilter,
+  bankName: textFilter,
+  utr: textFilter,
+  // Column sort. Whitelisted so callers can't order by arbitrary columns.
+  ...sortSchema(["donationDate", "amount", "type", "donationReceived", "createdAt"]),
 });

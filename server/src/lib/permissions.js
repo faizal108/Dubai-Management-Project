@@ -23,7 +23,17 @@ export const PERMISSIONS = {
   EXPENSE_UPDATE: "expense:update",
   EXPENSE_DELETE: "expense:delete",
   EXPENSE_VIEW_ALL: "expense:viewAll",
-  EXPENSE_CATEGORY_MANAGE: "expenseCategory:manage",
+
+  // Unified category admin (income / expense / other-income). Replaces the old
+  // expenseCategory:manage key. Lightweight admin data; ADMIN/SUPERADMIN bypass.
+  CATEGORY_MANAGE: "category:manage",
+
+  // In-kind / non-cash receipts (oil boxes, grain, …). viewAll lifts the
+  // createdById scope for EMPLOYEE users, mirroring expenses.
+  OTHER_INCOME_CREATE: "otherIncome:create",
+  OTHER_INCOME_UPDATE: "otherIncome:update",
+  OTHER_INCOME_DELETE: "otherIncome:delete",
+  OTHER_INCOME_VIEW_ALL: "otherIncome:viewAll",
 
   // Financial-year lifecycle (create window, close, reopen) and bank-account
   // administration are restricted operations. ADMIN/SUPERADMIN bypass; only
@@ -31,6 +41,11 @@ export const PERMISSIONS = {
   FINANCIAL_YEAR_MANAGE: "financialYear:manage",
   BANK_ACCOUNT_MANAGE: "bankAccount:manage",
   BANK_ACCOUNT_VIEW: "bankAccount:view",
+
+  // Internal money movement between cash / bank / FD buckets. A restricted
+  // operation like bank-account admin; ADMIN/SUPERADMIN bypass. Reads reuse
+  // BANK_ACCOUNT_VIEW so the ledger + transfers screens stay in lockstep.
+  TRANSFER_MANAGE: "transfer:manage",
 
   REPORT_VIEW: "report:view",
   DASHBOARD_VIEW: "dashboard:view",

@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma.js";
 import { ApiError } from "../../lib/apiError.js";
 import { recordAudit } from "../../lib/audit.js";
 import { toPrismaPaging, buildPage } from "../../lib/pagination.js";
+import { buildOrderBy, applyColumnFilters } from "../../lib/listQuery.js";
 import { resolveFoundationId, tenantWhere } from "../../lib/tenantScope.js";
 import { PERMISSIONS, hasPermission } from "../../lib/permissions.js";
 import { sendDonationReceipt } from "../notifications/whatsapp/index.js";
@@ -30,6 +31,7 @@ const PUBLIC_FIELDS = {
   category: true,
   bankAccountId: true,
   financialYearId: true,
+  incomeCategoryId: true,
   bankName: true,
   utr: true,
   ifsc: true,
@@ -277,8 +279,48 @@ async function resolveOrCreateDonor(foundationId, { donorId, donor }) {
   };
 }
 
+// Per-column filter map (DataTable). Text columns filter the relation / row;
+// donor name + PAN reach through the Donor relation and fall back to the
+// snapshot columns so anonymous (Tier 3) rows still match.
+const DONATION_FILTERS = {
+  donorName: {
+    where: (v) => ({
+      OR: [
+        { donor: { is: { fullName: { contains: v, mode: "insensitive" } } } },
+        { donorNameSnapshot: { contains: v, mode: "insensitive" } },
+      ],
+    }),
+  },
+  pan: {
+    where: (v) => ({ donor: { is: { pan: { contains: v, mode: "insensitive" } } } }),
+  },
+  bankName: { type: "text" },
+  utr: {
+    where: (v) => ({
+      OR: [
+        { utr: { contains: v, mode: "insensitive" } },
+        { chequeNumber: { contains: v, mode: "insensitive" } },
+      ],
+    }),
+  },
+  incomeCategoryId: { field: "incomeCategoryId" },
+};
+
+const DONATION_SORT = {
+  map: {
+    donationDate: "donationDate",
+    amount: "amount",
+    type: "type",
+    donationReceived: "donationReceived",
+    createdAt: "createdAt",
+  },
+  fallback: [{ donationDate: "desc" }, { createdAt: "desc" }],
+};
+
 export async function listDonations(user, query) {
   const where = buildWhere(user, query);
+  applyColumnFilters(where, query, DONATION_FILTERS);
+  const orderBy = buildOrderBy(query.sortBy, query.sortDir, DONATION_SORT);
   const paging = toPrismaPaging(query);
   const [items, total] = await Promise.all([
     prisma.donation.findMany({
@@ -303,8 +345,9 @@ export async function listDonations(user, query) {
             pincode: true,
           },
         },
+        incomeCategory: { select: { id: true, name: true } },
       },
-      orderBy: [{ donationDate: "desc" }, { createdAt: "desc" }],
+      orderBy,
       ...paging,
     }),
     prisma.donation.count({ where }),
@@ -377,9 +420,21 @@ async function resolveDonationBankAccount(tx, foundationId, category, bankAccoun
   return def.id;
 }
 
+// Validates an optional income category belongs to the foundation, is of
+// kind INCOME, and is active. No-op when categoryId is falsy.
+async function assertIncomeCategory(foundationId, incomeCategoryId) {
+  if (!incomeCategoryId) return;
+  const cat = await prisma.category.findFirst({
+    where: { id: incomeCategoryId, foundationId, kind: "INCOME", isDeleted: false },
+    select: { id: true },
+  });
+  if (!cat) throw ApiError.badRequest("Invalid income category");
+}
+
 export async function createDonation(user, input) {
   const foundationId = resolveFoundationId(user, input.foundationId);
   await enforceCashLimit(foundationId, input.type, input.amount);
+  await assertIncomeCategory(foundationId, input.incomeCategoryId);
 
   // Resolve the donor across all three identifier tiers (PAN, phone, or
   // name-only). This may create a new Donor row inline; snapshots capture
@@ -507,6 +562,9 @@ export async function updateDonation(user, id, input) {
   const nextType = input.type ?? before.type;
   const nextAmount = input.amount ?? before.amount;
   await enforceCashLimit(before.foundationId, nextType, nextAmount);
+  if (input.incomeCategoryId) {
+    await assertIncomeCategory(before.foundationId, input.incomeCategoryId);
+  }
 
   // Re-derive status whenever type or transactionDate is touched. `null`
   // explicitly clears transactionDate (Zod schema allows it on update).

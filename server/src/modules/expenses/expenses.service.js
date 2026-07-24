@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma.js";
 import { ApiError } from "../../lib/apiError.js";
 import { recordAudit } from "../../lib/audit.js";
 import { toPrismaPaging, buildPage } from "../../lib/pagination.js";
+import { buildOrderBy, applyColumnFilters } from "../../lib/listQuery.js";
 import { resolveFoundationId, tenantWhere } from "../../lib/tenantScope.js";
 import { PERMISSIONS, hasPermission } from "../../lib/permissions.js";
 import {
@@ -89,8 +90,8 @@ async function findScoped(user, id, { includeDeleted = false } = {}) {
 // Validates that the referenced category exists, belongs to the given
 // foundation, and is not soft-deleted. Called on create/update.
 async function assertCategoryValid(foundationId, categoryId) {
-  const category = await prisma.expenseCategory.findFirst({
-    where: { id: categoryId, foundationId, isDeleted: false },
+  const category = await prisma.category.findFirst({
+    where: { id: categoryId, foundationId, kind: "EXPENSE", isDeleted: false },
     select: { id: true },
   });
   if (!category) {
@@ -111,8 +112,25 @@ async function assertActivityValid(foundationId, activityId) {
   }
 }
 
+const EXPENSE_FILTERS = {
+  paidTo: { type: "text" },
+  referenceNo: { type: "text" },
+};
+
+const EXPENSE_SORT = {
+  map: {
+    paidOn: "paidOn",
+    amount: "amount",
+    paidTo: "paidTo",
+    createdAt: "createdAt",
+  },
+  fallback: [{ paidOn: "desc" }, { createdAt: "desc" }],
+};
+
 export async function listExpenses(user, query) {
   const where = buildWhere(user, query);
+  applyColumnFilters(where, query, EXPENSE_FILTERS);
+  const orderBy = buildOrderBy(query.sortBy, query.sortDir, EXPENSE_SORT);
   const paging = toPrismaPaging(query);
   const [items, total] = await Promise.all([
     prisma.expense.findMany({
@@ -125,7 +143,7 @@ export async function listExpenses(user, query) {
           select: { id: true, label: true, accountNumber: true },
         },
       },
-      orderBy: [{ paidOn: "desc" }, { createdAt: "desc" }],
+      orderBy,
       ...paging,
     }),
     prisma.expense.count({ where }),

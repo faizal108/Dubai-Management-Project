@@ -19,11 +19,20 @@ export const PERMISSIONS = {
   EXPENSE_UPDATE: "expense:update",
   EXPENSE_DELETE: "expense:delete",
   EXPENSE_VIEW_ALL: "expense:viewAll",
-  EXPENSE_CATEGORY_MANAGE: "expenseCategory:manage",
+
+  // Unified category admin (income / expense / other-income).
+  CATEGORY_MANAGE: "category:manage",
+
+  // In-kind / non-cash receipts.
+  OTHER_INCOME_CREATE: "otherIncome:create",
+  OTHER_INCOME_UPDATE: "otherIncome:update",
+  OTHER_INCOME_DELETE: "otherIncome:delete",
+  OTHER_INCOME_VIEW_ALL: "otherIncome:viewAll",
 
   FINANCIAL_YEAR_MANAGE: "financialYear:manage",
   BANK_ACCOUNT_MANAGE: "bankAccount:manage",
   BANK_ACCOUNT_VIEW: "bankAccount:view",
+  TRANSFER_MANAGE: "transfer:manage",
 
   REPORT_VIEW: "report:view",
   DASHBOARD_VIEW: "dashboard:view",
@@ -78,15 +87,24 @@ export const PERMISSION_GROUPS = [
         key: PERMISSIONS.EXPENSE_VIEW_ALL,
         label: "View all expenses (not just own)",
       },
+    ],
+  },
+  {
+    label: "Other Income (in-kind)",
+    items: [
+      { key: PERMISSIONS.OTHER_INCOME_CREATE, label: "Add in-kind receipts" },
+      { key: PERMISSIONS.OTHER_INCOME_UPDATE, label: "Edit in-kind receipts" },
+      { key: PERMISSIONS.OTHER_INCOME_DELETE, label: "Delete in-kind receipts" },
       {
-        key: PERMISSIONS.EXPENSE_CATEGORY_MANAGE,
-        label: "Manage expense categories",
+        key: PERMISSIONS.OTHER_INCOME_VIEW_ALL,
+        label: "View all in-kind receipts (not just own)",
       },
     ],
   },
   {
-    label: "Financials & Compliance",
+    label: "Categories & Financials",
     items: [
+      { key: PERMISSIONS.CATEGORY_MANAGE, label: "Manage categories (income / expense / other)" },
       {
         key: PERMISSIONS.FINANCIAL_YEAR_MANAGE,
         label: "Manage financial years (create, close, reopen)",
@@ -98,6 +116,10 @@ export const PERMISSION_GROUPS = [
       {
         key: PERMISSIONS.BANK_ACCOUNT_VIEW,
         label: "View bank accounts (balances & ledger)",
+      },
+      {
+        key: PERMISSIONS.TRANSFER_MANAGE,
+        label: "Manage transfers (cash / bank / fixed deposits)",
       },
     ],
   },

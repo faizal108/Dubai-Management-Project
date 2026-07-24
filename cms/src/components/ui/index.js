@@ -11,6 +11,7 @@ export {
 } from "./Card";
 export { default as Input, inputBase } from "./Input";
 export { default as Textarea } from "./Textarea";
+export { default as ImageUpload } from "./ImageUpload";
 export { default as Select } from "./Select";
 export { default as Badge } from "./Badge";
 export { default as PageHeader } from "./PageHeader";
@@ -35,5 +36,12 @@ export {
 export { default as ErrorBoundary } from "./ErrorBoundary";
 export { default as FormField } from "./FormField";
 export { default as PowerTable } from "./PowerTable";
+export {
+  default as DataTable,
+  linkColumn,
+  selectionColumn,
+  actionsColumn,
+} from "./DataTable";
 export { default as ColumnsMenu, useColumnVisibility } from "./ColumnsMenu";
+export { default as useDebounced } from "./useDebounced";
 export { cn } from "./cn";

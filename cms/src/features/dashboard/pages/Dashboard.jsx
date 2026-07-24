@@ -18,6 +18,7 @@ import {
   CurrencyRupeeIcon,
   UsersIcon,
   ClockIcon,
+  CubeIcon,
   BuildingOffice2Icon,
   BanknotesIcon,
   ScaleIcon,
@@ -382,6 +383,14 @@ const Dashboard = () => {
         icon: ClockIcon,
         tone: "warning",
         isCurrency: true,
+      },
+      {
+        title: "Other Income (in-kind)",
+        value: s.otherIncome?.estimatedValue ?? 0,
+        icon: CubeIcon,
+        tone: "info",
+        isCurrency: true,
+        hint: `${s.otherIncome?.count ?? 0} in-kind receipt(s) · est. value`,
       },
     ];
   }, [summary]);

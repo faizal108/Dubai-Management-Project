@@ -28,6 +28,7 @@ import { getMyFoundation } from "../../foundations/api";
 import DonorSearchSelect from "../components/DonorSearchSelect";
 import PaymentModeFields from "../components/PaymentModeFields";
 import BankAccountSelect from "../../bankAccounts/components/BankAccountSelect";
+import CategorySelect from "../../categories/components/CategorySelect";
 import {
   Button,
   Card,
@@ -85,6 +86,7 @@ const emptyForm = () => ({
   amount: "",
   type: "CASH",
   category: "GENERAL",
+  incomeCategoryId: "",
   bankName: "",
   utr: "",
   chequeNumber: "",
@@ -198,6 +200,7 @@ const AddDonation = () => {
                 : String(row.amount ?? ""),
             type: row.type,
             category: row.category ?? "GENERAL",
+            incomeCategoryId: row.incomeCategoryId ?? "",
             bankName: row.bankName ?? "",
             utr: row.utr ?? "",
             chequeNumber: row.chequeNumber ?? "",
@@ -330,6 +333,7 @@ const AddDonation = () => {
     // resolves the foundation's default for the donation's category
     // (GENERAL or CSR) and errors if none is configured.
     if (form.bankAccountId) out.bankAccountId = form.bankAccountId;
+    if (form.incomeCategoryId) out.incomeCategoryId = form.incomeCategoryId;
     // Only forward whatsappOptIn when the tenant is wired for WhatsApp —
     // otherwise the server would 422 on a stray opt-in.
     if (foundation?.hasWhatsappBusiness && form.whatsappOptIn) {
@@ -410,6 +414,7 @@ const AddDonation = () => {
       amount: typeof row.amount === "string" ? row.amount : String(row.amount ?? ""),
       type: row.type,
       category: row.category ?? "GENERAL",
+      incomeCategoryId: row.incomeCategoryId ?? "",
       bankName: row.bankName ?? "",
       utr: row.utr ?? "",
       chequeNumber: row.chequeNumber ?? "",
@@ -717,6 +722,20 @@ const AddDonation = () => {
                   category={form.category}
                   disabled={submitting}
                   error={!!err("bankAccountId")}
+                />
+              </FormField>
+
+              <FormField
+                label="Income category"
+                hint="Optional — e.g. Zakat, Sadaqah, Building Fund."
+                error={err("incomeCategoryId")}
+              >
+                <CategorySelect
+                  kind="INCOME"
+                  value={form.incomeCategoryId}
+                  onChange={(v) => setField("incomeCategoryId", v)}
+                  disabled={submitting}
+                  placeholder="— None —"
                 />
               </FormField>
 

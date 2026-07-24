@@ -10,10 +10,13 @@ const SOFT_DELETE_MODELS = new Set([
   "Donor",
   "Donation",
   "Activity",
-  "ExpenseCategory",
+  "Category",
   "Expense",
   "FinancialYear",
   "BankAccount",
+  "Transfer",
+  "FixedDeposit",
+  "OtherIncome",
 ]);
 // Models with createdBy / updatedBy audit columns to auto-populate. Transaction
 // is append-only: it carries createdBy but no updatedBy (ledger rows are never
@@ -24,10 +27,13 @@ const AUDITED_MODELS = new Set([
   "Donor",
   "Donation",
   "Activity",
-  "ExpenseCategory",
+  "Category",
   "Expense",
   "FinancialYear",
   "BankAccount",
+  "Transfer",
+  "FixedDeposit",
+  "OtherIncome",
 ]);
 // Append-only models: createBy is auto-stamped, but the model has no
 // updatedBy column, so update-side extensions must skip it. Kept separate

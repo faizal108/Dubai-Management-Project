@@ -1,13 +1,13 @@
 // src/features/accounting/pages/ExpenseLedger.jsx
-// Debit-only view over the Transaction ledger. Surfaces the expense payee /
-// category / activity join alongside the amount and the balance-after so
-// disbursements can be reviewed end-to-end here.
+// Debit-only view over the Transaction ledger, on the shared DataTable.
+// Sortable date / amount / balance + a description column filter drive the
+// server; account / FY / date-window filters live in AccountingFilters.
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Card, CardBody } from "../../../components/ui";
+import { BanknotesIcon } from "@heroicons/react/24/outline";
+import { Card, CardBody, DataTable } from "../../../components/ui";
 import { useFinancialYear } from "../../../context/FinancialYearContext";
 import AccountingFilters from "../components/AccountingFilters";
-import LedgerTable from "../components/LedgerTable";
 import { listExpenseLedger } from "../api";
 import { formatAmount, formatDate, toIsoDate } from "../utils";
 
@@ -26,13 +26,10 @@ const ExpenseLedger = () => {
     financialYearId: selectedYearId || "",
   }));
   const [page, setPage] = useState(1);
-  const pageSize = 20;
-  const [data, setData] = useState({
-    items: [],
-    total: 0,
-    totalPages: 1,
-    totalAmount: 0,
-  });
+  const [pageSize, setPageSize] = useState(20);
+  const [sort, setSort] = useState({ by: null, dir: null });
+  const [colFilters, setColFilters] = useState({});
+  const [data, setData] = useState({ items: [], total: 0, totalAmount: 0 });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -46,18 +43,21 @@ const ExpenseLedger = () => {
     try {
       const params = { page, pageSize };
       if (filters.foundationId) params.foundationId = filters.foundationId;
-      if (filters.financialYearId)
-        params.financialYearId = filters.financialYearId;
+      if (filters.financialYearId) params.financialYearId = filters.financialYearId;
       if (filters.bankAccountId) params.bankAccountId = filters.bankAccountId;
       const from = toIsoDate(filters.from);
       const to = toIsoDate(filters.to);
       if (from) params.from = from;
       if (to) params.to = to;
+      if (sort.by) {
+        params.sortBy = sort.by;
+        params.sortDir = sort.dir;
+      }
+      Object.assign(params, colFilters);
       const res = await listExpenseLedger(params);
       setData({
         items: res?.items ?? [],
         total: res?.total ?? 0,
-        totalPages: res?.totalPages ?? 1,
         totalAmount: res?.totalAmount ?? 0,
       });
     } catch (err) {
@@ -71,56 +71,35 @@ const ExpenseLedger = () => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    page,
-    filters.foundationId,
-    filters.financialYearId,
-    filters.bankAccountId,
-    filters.from,
-    filters.to,
+    page, pageSize, sort, colFilters,
+    filters.foundationId, filters.financialYearId, filters.bankAccountId, filters.from, filters.to,
   ]);
 
   useEffect(() => {
     setPage(1);
   }, [
-    filters.foundationId,
-    filters.financialYearId,
-    filters.bankAccountId,
-    filters.from,
-    filters.to,
+    sort, colFilters, pageSize,
+    filters.foundationId, filters.financialYearId, filters.bankAccountId, filters.from, filters.to,
   ]);
 
   const columns = useMemo(
     () => [
-      { key: "date", header: "Date", cell: (r) => formatDate(r.occurredAt) },
-      {
-        key: "paidTo",
-        header: "Paid To",
-        cell: (r) => r.expense?.paidTo || "—",
-      },
-      {
-        key: "category",
-        header: "Category",
-        cell: (r) => r.expense?.categoryName || "—",
-      },
-      {
-        key: "activity",
-        header: "Activity",
-        cell: (r) => r.expense?.activityTitle || "—",
-      },
-      {
-        key: "account",
-        header: "Account",
-        cell: (r) => r.bankAccount?.label || "—",
-      },
+      { key: "date", header: "Date", sortable: true, sortField: "occurredAt", cell: (r) => formatDate(r.occurredAt) },
+      { key: "paidTo", header: "Paid To", cell: (r) => r.expense?.paidTo || "—" },
+      { key: "category", header: "Category", cell: (r) => r.expense?.categoryName || "—" },
+      { key: "activity", header: "Activity", cell: (r) => r.expense?.activityTitle || "—" },
+      { key: "account", header: "Account", cell: (r) => r.bankAccount?.label || "—" },
       {
         key: "reference",
         header: "Reference",
+        filter: { type: "text", param: "description", placeholder: "Search…" },
         cell: (r) => r.expense?.referenceNo || r.description || "—",
       },
       {
         key: "amount",
         header: "Amount",
         align: "right",
+        sortable: true,
         cell: (r) => (
           <span className="tabular-nums font-semibold text-rose-600 dark:text-rose-400">
             ₹{formatAmount(r.amount)}
@@ -131,10 +110,10 @@ const ExpenseLedger = () => {
         key: "balance",
         header: "Balance",
         align: "right",
+        sortable: true,
+        sortField: "balanceAfter",
         cell: (r) => (
-          <span className="tabular-nums text-muted-foreground">
-            ₹{formatAmount(r.balanceAfter)}
-          </span>
+          <span className="tabular-nums text-muted-foreground">₹{formatAmount(r.balanceAfter)}</span>
         ),
       },
     ],
@@ -149,22 +128,38 @@ const ExpenseLedger = () => {
         </CardBody>
       </Card>
 
-      <LedgerTable
-        title="Expense Ledger"
-        totalLabel="debit entries in window"
-        totalAmount={data.totalAmount}
-        totalAmountLabel="Expense"
-        columns={columns}
-        rows={data.items}
-        isFetching={loading}
-        page={page}
-        totalPages={data.totalPages || 1}
-        total={data.total}
-        onPageChange={setPage}
-        onRefresh={load}
-        emptyTitle="No expense entries"
-        emptyDescription="No DEBIT transactions match the current filter window."
-      />
+      <Card>
+        <CardBody>
+          <div className="mb-3 flex flex-wrap items-baseline gap-3">
+            <h2 className="text-base font-semibold text-foreground">Expense Ledger</h2>
+            <span className="text-sm text-muted-foreground">
+              Expense:{" "}
+              <span className="font-semibold tabular-nums text-foreground">
+                ₹{formatAmount(data.totalAmount)}
+              </span>{" "}
+              <span className="text-xs">· debit entries in window</span>
+            </span>
+          </div>
+          <DataTable
+            columns={columns}
+            rows={data.items}
+            total={data.total}
+            loading={loading}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            sort={sort}
+            onSortChange={setSort}
+            columnFilters={colFilters}
+            onColumnFiltersChange={setColFilters}
+            enableGlobalSearch={false}
+            emptyIcon={BanknotesIcon}
+            emptyTitle="No expense entries"
+            emptyDescription="No DEBIT transactions match the current filter window."
+          />
+        </CardBody>
+      </Card>
     </>
   );
 };

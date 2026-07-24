@@ -4,6 +4,7 @@ import { ROLES } from "../../../constants/roles";
 import { useAuth } from "../../../context/AuthContext";
 import AppearanceSettings from "../components/AppearanceSettings";
 import OrganizationSettings from "../components/OrganizationSettings";
+import ReceiptBuilder from "../components/ReceiptBuilder";
 
 // SettingsPage is the home for everything that isn't a per-resource form.
 // Tabs keep adding new sections (Notifications, Integrations, …) cheap.
@@ -25,6 +26,11 @@ export default function SettingsPage() {
       key: "organization",
       label: "Organization",
       content: <OrganizationSettings />,
+    });
+    tabs.push({
+      key: "receipt",
+      label: "Receipt",
+      content: <ReceiptBuilder />,
     });
   }
 

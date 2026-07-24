@@ -2,6 +2,18 @@ import { prisma } from "../../lib/prisma.js";
 import { tenantWhere } from "../../lib/tenantScope.js";
 import { resolveActiveFinancialYear } from "../../lib/financialYear.js";
 import { toPrismaPaging, buildPage } from "../../lib/pagination.js";
+import { buildOrderBy, applyColumnFilters } from "../../lib/listQuery.js";
+
+// Sort map for the income / expense ledger tables. Books ignore this and keep
+// their ascending chronological order so the running balance reads correctly.
+const LEDGER_SORT = {
+  map: {
+    occurredAt: "occurredAt",
+    amount: "amount",
+    balanceAfter: "balanceAfter",
+  },
+  fallback: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+};
 
 // Serializable FY summary attached to every accounting payload so the client
 // can render the "FY 2025-26" label without a follow-up call. Mirrors the
@@ -35,15 +47,18 @@ async function resolveFyContext(where, financialYearId) {
 // Sums the ledger for a given tenant/FY window split by CREDIT vs DEBIT.
 // Uses Transaction as the single source of truth (donations + expenses both
 // append here) so cash and bank books stay reconciled with the dashboard.
+// Internal transfers (entityType "Transfer") are EXCLUDED — a cash->bank move
+// is neither income nor expense, so counting its legs would inflate both.
 async function sumLedger(where) {
+  const notTransfer = { entityType: { not: "Transfer" } };
   const [credit, debit] = await Promise.all([
     prisma.transaction.aggregate({
-      where: { ...where, type: "CREDIT" },
+      where: { ...where, ...notTransfer, type: "CREDIT" },
       _sum: { amount: true },
       _count: { _all: true },
     }),
     prisma.transaction.aggregate({
-      where: { ...where, type: "DEBIT" },
+      where: { ...where, ...notTransfer, type: "DEBIT" },
       _sum: { amount: true },
       _count: { _all: true },
     }),
@@ -89,6 +104,50 @@ async function listAccountBalances(where) {
   }));
 }
 
+// Fixed-deposit holdings for the dashboard. activePrincipal is money currently
+// parked (status ACTIVE); interestEarned is the lifetime gain realised on
+// returned FDs (sum of returnAmount - principal over CLOSED rows). Not
+// FY-scoped — FD holdings are a point-in-time position, not a period flow.
+async function sumFixedDeposits(where) {
+  const [active, closed] = await Promise.all([
+    prisma.fixedDeposit.aggregate({
+      where: { ...where, status: "ACTIVE" },
+      _sum: { principal: true },
+      _count: { _all: true },
+    }),
+    prisma.fixedDeposit.findMany({
+      where: { ...where, status: "CLOSED" },
+      select: { principal: true, returnAmount: true },
+    }),
+  ]);
+  const interestEarned = closed.reduce(
+    (s, fd) => s + (Number(fd.returnAmount ?? 0) - Number(fd.principal ?? 0)),
+    0
+  );
+  return {
+    activeCount: active._count._all,
+    activePrincipal: Number(active._sum.principal ?? 0),
+    interestEarned,
+  };
+}
+
+// In-kind / other-income holdings for the dashboard. Non-cash receipts tracked
+// separately from money — `estimatedValue` is informational and never mixed
+// into the ledger totals above. FY-scoped by financialYearId when known.
+async function sumOtherIncome(where, fy) {
+  const w = { ...where };
+  if (fy) w.financialYearId = fy.id;
+  const agg = await prisma.otherIncome.aggregate({
+    where: w,
+    _sum: { estimatedValue: true },
+    _count: { _all: true },
+  });
+  return {
+    count: agg._count._all,
+    estimatedValue: Number(agg._sum.estimatedValue ?? 0),
+  };
+}
+
 // Dashboard aggregate. Returns FY-scoped totals for the top tiles plus a
 // cash/bank breakdown and per-account balances so the UI can render the
 // full accounting overview from one call.
@@ -99,11 +158,13 @@ export async function getAccountingSummary(user, { foundationId, financialYearId
     ? { ...where, financialYearId: fy.id }
     : { ...where };
 
-  const [totals, cashTotals, bankTotals, accounts] = await Promise.all([
+  const [totals, cashTotals, bankTotals, accounts, fixedDeposits, otherIncome] = await Promise.all([
     sumLedger(fyWhere),
     sumLedger({ ...fyWhere, bankAccount: { is: { accountNumber: null } } }),
     sumLedger({ ...fyWhere, bankAccount: { is: { accountNumber: { not: null } } } }),
     listAccountBalances(where),
+    sumFixedDeposits(where),
+    sumOtherIncome(where, fy),
   ]);
 
   // Split the account balances by derived kind so the UI can render the
@@ -118,6 +179,8 @@ export async function getAccountingSummary(user, { foundationId, financialYearId
     totals,
     cash: { ...cashTotals, onHand: cashOnHand, accounts: cashAccounts },
     bank: { ...bankTotals, onHand: bankOnHand, accounts: bankAccounts },
+    fixedDeposits,
+    otherIncome,
     accounts,
   };
 }
@@ -156,6 +219,10 @@ function buildLedgerWhere(user, query, { type, kind, fy }) {
   const where = { ...tenantWhere(user, query.foundationId) };
   if (query.bankAccountId) where.bankAccountId = query.bankAccountId;
   if (type) where.type = type;
+  // Income / expense ledgers (kind null) list donation/expense activity only —
+  // internal transfers are excluded. Cash / bank books (kind set) intentionally
+  // KEEP transfer rows so the running balance column reconciles.
+  if (!kind) where.entityType = { not: "Transfer" };
   if (kind === "cash") where.bankAccount = { is: { accountNumber: null } };
   if (kind === "bank") where.bankAccount = { is: { accountNumber: { not: null } } };
   if (fy) where.financialYearId = fy.id;
@@ -267,13 +334,16 @@ async function listLedger(user, query, { type, kind }) {
   const where = tenantWhere(user, query.foundationId);
   const fy = await resolveFyContext(where, query.financialYearId);
   const listWhere = buildLedgerWhere(user, query, { type, kind, fy });
+  // Income / expense ledgers expose per-column search + sort (DataTable). The
+  // chronological books keep their fixed ascending order + no column filters.
+  if (!kind) applyColumnFilters(listWhere, query, { description: { type: "text" } });
   const paging = toPrismaPaging(query);
   // Cash / bank books read chronologically so the balanceAfter column reads
-  // as a running balance. Income / expense ledgers read newest-first — the
-  // default listing order for management screens.
+  // as a running balance. Income / expense ledgers read newest-first by
+  // default, or by the caller's chosen sort column.
   const orderBy = kind
     ? [{ occurredAt: "asc" }, { createdAt: "asc" }]
-    : [{ occurredAt: "desc" }, { createdAt: "desc" }];
+    : buildOrderBy(query.sortBy, query.sortDir, LEDGER_SORT);
   const [rows, total, agg] = await Promise.all([
     prisma.transaction.findMany({
       where: listWhere,
@@ -327,7 +397,10 @@ async function computeOpeningBalance(account, windowStart) {
 }
 
 // Sums the credit / debit activity for one account inside a window. Used by
-// the reports endpoint to build the per-account statement.
+// the reports endpoint to build the per-account statement. Income / expense
+// count donation/expense activity only; internal transfers are reported
+// separately (transferIn / transferOut) so the closing balance still
+// reconciles: closing = opening + income - expense + transferIn - transferOut.
 async function sumAccountWindow(bankAccountId, start, end) {
   const where = { bankAccountId };
   if (start || end) {
@@ -335,16 +408,26 @@ async function sumAccountWindow(bankAccountId, start, end) {
     if (start) where.occurredAt.gte = start;
     if (end) where.occurredAt.lt = end;
   }
-  const [credit, debit] = await Promise.all([
+  const notTransfer = { entityType: { not: "Transfer" } };
+  const isTransfer = { entityType: "Transfer" };
+  const [credit, debit, transferCredit, transferDebit] = await Promise.all([
     prisma.transaction.aggregate({
-      where: { ...where, type: "CREDIT" },
+      where: { ...where, ...notTransfer, type: "CREDIT" },
       _sum: { amount: true },
       _count: { _all: true },
     }),
     prisma.transaction.aggregate({
-      where: { ...where, type: "DEBIT" },
+      where: { ...where, ...notTransfer, type: "DEBIT" },
       _sum: { amount: true },
       _count: { _all: true },
+    }),
+    prisma.transaction.aggregate({
+      where: { ...where, ...isTransfer, type: "CREDIT" },
+      _sum: { amount: true },
+    }),
+    prisma.transaction.aggregate({
+      where: { ...where, ...isTransfer, type: "DEBIT" },
+      _sum: { amount: true },
     }),
   ]);
   return {
@@ -352,6 +435,8 @@ async function sumAccountWindow(bankAccountId, start, end) {
     incomeCount: credit._count._all,
     expense: Number(debit._sum.amount ?? 0),
     expenseCount: debit._count._all,
+    transferIn: Number(transferCredit._sum.amount ?? 0),
+    transferOut: Number(transferDebit._sum.amount ?? 0),
   };
 }
 
@@ -383,7 +468,9 @@ export async function getAccountingReport(user, query) {
         computeOpeningBalance(a, start),
         sumAccountWindow(a.id, start, end),
       ]);
-      const closing = opening + movement.income - movement.expense;
+      const transferNet = movement.transferIn - movement.transferOut;
+      const closing =
+        opening + movement.income - movement.expense + transferNet;
       return {
         account: serializeAccount(a),
         opening,
@@ -391,6 +478,9 @@ export async function getAccountingReport(user, query) {
         incomeCount: movement.incomeCount,
         expense: movement.expense,
         expenseCount: movement.expenseCount,
+        transferIn: movement.transferIn,
+        transferOut: movement.transferOut,
+        transferNet,
         net: movement.income - movement.expense,
         closing,
       };
@@ -404,10 +494,16 @@ export async function getAccountingReport(user, query) {
       incomeCount: acc.incomeCount + r.incomeCount,
       expense: acc.expense + r.expense,
       expenseCount: acc.expenseCount + r.expenseCount,
+      transferIn: acc.transferIn + r.transferIn,
+      transferOut: acc.transferOut + r.transferOut,
+      transferNet: acc.transferNet + r.transferNet,
       net: acc.net + r.net,
       closing: acc.closing + r.closing,
     }),
-    { opening: 0, income: 0, incomeCount: 0, expense: 0, expenseCount: 0, net: 0, closing: 0 }
+    {
+      opening: 0, income: 0, incomeCount: 0, expense: 0, expenseCount: 0,
+      transferIn: 0, transferOut: 0, transferNet: 0, net: 0, closing: 0,
+    }
   );
 
   const cash = perAccount.filter((r) => r.account.kind === "cash");

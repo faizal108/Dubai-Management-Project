@@ -1,34 +1,29 @@
 // src/features/expenses/pages/ManageExpenses.jsx
 //
-// Expense workspace. Server-side pagination + backend filters (category,
-// activity, date range, amount range, search) drive a raw <table> inside a
-// Card, with a ColumnsMenu for column-visibility toggling — layout mirrors
-// SearchDonation. Create + edit happen in a Modal because
-// the form carries 7 fields — inline card cramps the layout.
-// Row actions collapse into a three-dots Dropdown, matching donations.
-// ADMIN/EMPLOYEE are scoped by the backend token; SUPERADMIN gets a
-// foundation filter/picker.
+// Expense workspace on the shared DataTable. Global search (paidTo / reference /
+// notes) + per-column text filters + column sort + pagination are server-side;
+// category / activity / date-range / amount-range / show-deleted live in the
+// toolbar slot. Create + edit happen in a Modal. ADMIN/EMPLOYEE are scoped by
+// the backend token; SUPERADMIN gets a foundation filter + picker.
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import {
-  ArrowPathIcon,
   ArrowUturnLeftIcon,
-  EllipsisVerticalIcon,
-  MagnifyingGlassIcon,
   PencilIcon,
   PlusIcon,
   TrashIcon,
+  BanknotesIcon,
 } from "@heroicons/react/24/outline";
 
 import {
   createExpense,
   deleteExpense,
   listExpenses,
-  listExpenseCategories,
   restoreExpense,
   updateExpense,
 } from "../api";
+import { listCategories } from "../../categories/api";
 import { listActivities } from "../../activities/api";
 import { listFoundations } from "../../foundations/api";
 import BankAccountSelect from "../../bankAccounts/components/BankAccountSelect";
@@ -40,25 +35,16 @@ import {
   Button,
   Card,
   CardBody,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-  ColumnsMenu,
   ConfirmDialog,
-  Dropdown,
-  DropdownItem,
-  DropdownSection,
-  EmptyState,
+  DataTable,
+  actionsColumn,
   FormField,
   Input,
   Modal,
   PageHeader,
   Select,
-  Spinner,
   Textarea,
-  useColumnVisibility,
 } from "../../../components/ui";
-import { BanknotesIcon } from "@heroicons/react/24/outline";
 
 const EMPTY_FORM = {
   categoryId: "",
@@ -70,7 +56,6 @@ const EMPTY_FORM = {
   notes: "",
   bankAccountId: "",
 };
-const PAGE_SIZE = 25;
 
 const toDateInputValue = (iso) => {
   if (!iso) return "";
@@ -94,80 +79,24 @@ const formatAmount = (v) => {
   });
 };
 
-// Local guard mirroring backend regex before we hit the API. Keeps error
-// messaging inline and avoids a round-trip for obvious mistakes.
 const isValidAmount = (v) => /^\d{1,12}(\.\d{1,2})?$/.test(String(v).trim());
-
-const RowActions = ({
-  expense,
-  canUpdate,
-  canDelete,
-  canRestore,
-  onEdit,
-  onDelete,
-  onRestore,
-}) => {
-  const trigger = (
-    <button
-      type="button"
-      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      aria-label="Row actions"
-    >
-      <EllipsisVerticalIcon className="h-5 w-5" />
-    </button>
-  );
-  return (
-    <Dropdown trigger={trigger} align="right">
-      <DropdownSection>
-        {expense.isDeleted ? (
-          <DropdownItem
-            icon={<ArrowUturnLeftIcon className="h-4 w-4" />}
-            onClick={() => onRestore(expense)}
-            disabled={!canRestore}
-          >
-            Restore
-          </DropdownItem>
-        ) : (
-          <>
-            <DropdownItem
-              icon={<PencilIcon className="h-4 w-4" />}
-              onClick={() => onEdit(expense)}
-              disabled={!canUpdate}
-            >
-              Edit
-            </DropdownItem>
-            <DropdownItem
-              icon={<TrashIcon className="h-4 w-4" />}
-              onClick={() => onDelete(expense)}
-              disabled={!canDelete}
-              danger
-            >
-              Delete
-            </DropdownItem>
-          </>
-        )}
-      </DropdownSection>
-    </Dropdown>
-  );
-};
 
 function ManageExpensesInner() {
   const { user } = useAuth();
   const { can } = usePermissions();
   const isSuperadmin = user?.role === ROLES.SUPERADMIN;
 
-  // Column visibility for the raw table; toggled from ColumnsMenu in header.
-  const { hidden: hiddenCols, toggle: toggleColumn } = useColumnVisibility();
-
-  // List + pagination state.
+  // List + table query state.
   const [items, setItems] = useState([]);
-  const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
   const [isFetching, setIsFetching] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [sort, setSort] = useState({ by: null, dir: null });
+  const [search, setSearch] = useState("");
+  const [colFilters, setColFilters] = useState({});
 
-  // Filters.
-  const [q, setQ] = useState("");
+  // Toolbar filters.
   const [categoryId, setCategoryId] = useState("");
   const [activityId, setActivityId] = useState("");
   const [from, setFrom] = useState("");
@@ -198,9 +127,8 @@ function ManageExpensesInner() {
   const canCreate = can(PERMISSIONS.EXPENSE_CREATE);
   const canUpdate = can(PERMISSIONS.EXPENSE_UPDATE);
   const canDelete = can(PERMISSIONS.EXPENSE_DELETE);
-  const canRestore = canDelete; // restore piggybacks on delete permission.
+  const canRestore = canDelete;
 
-  // Load foundations once for SUPERADMIN.
   useEffect(() => {
     if (!isSuperadmin) return;
     let cancelled = false;
@@ -217,9 +145,6 @@ function ManageExpensesInner() {
     };
   }, [isSuperadmin]);
 
-  // Load categories + activities scoped to the current foundation view.
-  // For SUPERADMIN the picker drives scope; for ADMIN/EMPLOYEE the backend
-  // scopes by token.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -232,7 +157,7 @@ function ManageExpensesInner() {
             : {}),
         };
         const [catRes, actRes] = await Promise.all([
-          listExpenseCategories(scopeParams),
+          listCategories({ ...scopeParams, kind: "EXPENSE" }),
           listActivities(scopeParams),
         ]);
         if (cancelled) return;
@@ -252,8 +177,10 @@ function ManageExpensesInner() {
     try {
       const params = {
         page,
-        pageSize: PAGE_SIZE,
-        q: q.trim() || undefined,
+        pageSize,
+        q: search.trim() || undefined,
+        sortBy: sort.by || undefined,
+        sortDir: sort.by ? sort.dir : undefined,
         categoryId: categoryId || undefined,
         activityId: activityId || undefined,
         from: from ? new Date(from).toISOString() : undefined,
@@ -261,6 +188,7 @@ function ManageExpensesInner() {
         minAmount: minAmount !== "" ? Number(minAmount) : undefined,
         maxAmount: maxAmount !== "" ? Number(maxAmount) : undefined,
         includeDeleted: includeDeleted || undefined,
+        ...colFilters,
       };
       if (isSuperadmin && selectedFoundationId) {
         params.foundationId = selectedFoundationId;
@@ -268,45 +196,26 @@ function ManageExpensesInner() {
       const res = await listExpenses(params);
       setItems(res?.items ?? []);
       setTotal(res?.total ?? 0);
-      setTotalPages(res?.totalPages ?? 1);
     } catch (err) {
       console.error("Fetch expenses error:", err);
     } finally {
       setIsFetching(false);
     }
   }, [
-    page,
-    q,
-    categoryId,
-    activityId,
-    from,
-    to,
-    minAmount,
-    maxAmount,
-    includeDeleted,
-    isSuperadmin,
-    selectedFoundationId,
+    page, pageSize, search, sort, colFilters, categoryId, activityId,
+    from, to, minAmount, maxAmount, includeDeleted, isSuperadmin, selectedFoundationId,
   ]);
 
-  // Debounced refetch on any list-input change.
   useEffect(() => {
-    const t = setTimeout(fetchExpenses, 300);
+    const t = setTimeout(fetchExpenses, 250);
     return () => clearTimeout(t);
   }, [fetchExpenses]);
 
-  // Snap back to page 1 when filters change.
   useEffect(() => {
     setPage(1);
   }, [
-    q,
-    categoryId,
-    activityId,
-    from,
-    to,
-    minAmount,
-    maxAmount,
-    includeDeleted,
-    selectedFoundationId,
+    search, colFilters, sort, categoryId, activityId, from, to,
+    minAmount, maxAmount, includeDeleted, pageSize, selectedFoundationId,
   ]);
 
   const resetForm = () => {
@@ -369,9 +278,6 @@ function ManageExpensesInner() {
     return Object.keys(errs).length === 0;
   };
 
-  // Trim empties on create so backend optional fields are truly absent.
-  // On update, send null for cleared nullable strings and null for activityId
-  // when the user clears it.
   const buildPayload = () => {
     const out = {};
     const isUpdate = Boolean(editing);
@@ -391,10 +297,6 @@ function ManageExpensesInner() {
     if (notes) out.notes = notes;
     else if (isUpdate) out.notes = null;
 
-    // bankAccountId is optional on create (server falls back to the
-    // foundation default). On update we only send it when the operator
-    // explicitly picked one — clearing back to the auto-default isn't a
-    // supported gesture (schema-level bankAccountId can't be nulled).
     if (form.bankAccountId) out.bankAccountId = form.bankAccountId;
 
     if (isSuperadmin && !isUpdate && formFoundationId) {
@@ -423,9 +325,7 @@ function ManageExpensesInner() {
       await fetchExpenses();
     } catch (err) {
       const envelope = err.apiError;
-      if (envelope?.details?.fieldErrors) {
-        setFieldErrors(envelope.details.fieldErrors);
-      }
+      if (envelope?.details?.fieldErrors) setFieldErrors(envelope.details.fieldErrors);
       if (envelope?.message) setFormError(envelope.message);
       console.error("Save expense error:", err);
     } finally {
@@ -463,18 +363,14 @@ function ManageExpensesInner() {
   const categoryOptions = useMemo(
     () => [
       { value: "", label: "— Select category —" },
-      ...categories
-        .filter((c) => !c.isDeleted)
-        .map((c) => ({ value: c.id, label: c.name })),
+      ...categories.filter((c) => !c.isDeleted).map((c) => ({ value: c.id, label: c.name })),
     ],
     [categories]
   );
   const activityOptions = useMemo(
     () => [
       { value: "", label: "— None —" },
-      ...activities
-        .filter((a) => !a.isDeleted)
-        .map((a) => ({ value: a.id, label: a.name })),
+      ...activities.filter((a) => !a.isDeleted).map((a) => ({ value: a.id, label: a.name })),
     ],
     [activities]
   );
@@ -495,10 +391,7 @@ function ManageExpensesInner() {
   const foundationOptions = useMemo(
     () => [
       { value: "", label: "— Select a foundation —" },
-      ...foundations.map((f) => ({
-        value: f.id,
-        label: `${f.name} (${f.pan})`,
-      })),
+      ...foundations.map((f) => ({ value: f.id, label: `${f.name} (${f.pan})` })),
     ],
     [foundations]
   );
@@ -510,62 +403,44 @@ function ManageExpensesInner() {
     [foundations]
   );
 
-  // Column config for the raw <table> render loop. `key`, `header`, `cell`,
-  // `accessor`, `align`, `className` fields are consumed directly by the
-  // <thead>/<tbody> in the JSX below and by ColumnsMenu in the CardHeader.
   const columns = useMemo(
     () => [
       {
         key: "paidOn",
         header: "Paid On",
-        accessor: (r) => r.paidOn,
-        cell: (r) => (
-          <span className="whitespace-nowrap text-sm text-foreground">
-            {formatDateCell(r.paidOn)}
-          </span>
-        ),
         sortable: true,
-        className: "w-32",
+        width: "8rem",
+        cell: (r) => (
+          <span className="whitespace-nowrap">{formatDateCell(r.paidOn)}</span>
+        ),
       },
       {
         key: "category",
         header: "Category",
-        accessor: (r) => r.category?.name || "",
         cell: (r) => (
-          <span className="font-medium text-foreground">
-            {r.category?.name || "—"}
-          </span>
+          <span className="font-medium">{r.category?.name || "—"}</span>
         ),
-        sortable: true,
-        searchable: true,
       },
       {
         key: "activity",
         header: "Activity",
-        accessor: (r) => r.activity?.name || "",
         cell: (r) => (
-          <span className="text-sm text-muted-foreground">
-            {r.activity?.name || "—"}
-          </span>
+          <span className="text-muted-foreground">{r.activity?.name || "—"}</span>
         ),
-        searchable: true,
       },
       {
         key: "bankAccount",
         header: "Bank Account",
-        accessor: (r) => r.bankAccount?.label || "",
         cell: (r) => {
           const acc = r.bankAccount;
           if (!acc) return <span className="text-xs text-muted-foreground">—</span>;
           const isCash = !acc.accountNumber;
           return (
-            <span className="inline-flex items-center gap-1 whitespace-nowrap text-sm text-foreground">
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
               {acc.label}
               <span
                 className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
-                  isCash
-                    ? "bg-warning/10 text-warning"
-                    : "bg-primary/10 text-primary"
+                  isCash ? "bg-warning/10 text-warning" : "bg-primary/10 text-primary"
                 }`}
               >
                 {isCash ? "Cash" : "Bank"}
@@ -573,43 +448,38 @@ function ManageExpensesInner() {
             </span>
           );
         },
-        searchable: true,
       },
       {
         key: "paidTo",
         header: "Paid To",
-        accessor: (r) => r.paidTo,
-        cell: (r) => <span className="text-foreground">{r.paidTo}</span>,
         sortable: true,
-        searchable: true,
+        filter: { type: "text", placeholder: "Search…" },
+        cell: (r) => r.paidTo,
       },
       {
         key: "amount",
         header: "Amount",
-        accessor: (r) => Number(r.amount),
+        sortable: true,
+        align: "right",
+        width: "8rem",
         cell: (r) => (
-          <span className="whitespace-nowrap font-semibold tabular-nums text-foreground">
+          <span className="whitespace-nowrap font-semibold tabular-nums">
             {formatAmount(r.amount)}
           </span>
         ),
-        sortable: true,
-        align: "right",
       },
       {
         key: "referenceNo",
         header: "Reference",
-        accessor: (r) => r.referenceNo || "",
+        filter: { type: "text", placeholder: "Search…" },
         cell: (r) => (
-          <span className="text-xs text-muted-foreground">
-            {r.referenceNo || "—"}
-          </span>
+          <span className="text-xs text-muted-foreground">{r.referenceNo || "—"}</span>
         ),
-        searchable: true,
       },
       {
         key: "status",
         header: "Status",
-        accessor: (r) => (r.isDeleted ? "Deleted" : "Active"),
+        width: "6rem",
         cell: (r) =>
           r.isDeleted ? (
             <span className="inline-flex items-center rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger">
@@ -620,26 +490,34 @@ function ManageExpensesInner() {
               Active
             </span>
           ),
-        className: "w-24",
       },
-      {
-        key: "actions",
-        header: "",
-        cell: (r) => (
-          <RowActions
-            expense={r}
-            canUpdate={canUpdate}
-            canDelete={canDelete}
-            canRestore={canRestore}
-            onEdit={openEdit}
-            onDelete={(exp) => setConfirmDeleteId(exp.id)}
-            onRestore={handleRestore}
-          />
-        ),
-        exportable: false,
-        className: "w-12",
-        align: "right",
-      },
+      actionsColumn({
+        items: (r) =>
+          r.isDeleted
+            ? [
+                {
+                  label: "Restore",
+                  icon: <ArrowUturnLeftIcon className="h-4 w-4" />,
+                  onClick: () => handleRestore(r),
+                  disabled: !canRestore,
+                },
+              ]
+            : [
+                {
+                  label: "Edit",
+                  icon: <PencilIcon className="h-4 w-4" />,
+                  onClick: () => openEdit(r),
+                  disabled: !canUpdate,
+                },
+                {
+                  label: "Delete",
+                  icon: <TrashIcon className="h-4 w-4" />,
+                  onClick: () => setConfirmDeleteId(r.id),
+                  disabled: !canDelete,
+                  danger: true,
+                },
+              ],
+      }),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [canUpdate, canDelete, canRestore]
@@ -651,223 +529,93 @@ function ManageExpensesInner() {
     <div>
       <PageHeader
         title="Expenses"
-        subtitle="Track foundation spending by category and activity. Filters and CSV export mirror the donations workspace."
+        subtitle="Track foundation spending by category and activity."
         actions={
           canCreate && (
-            <Button
-              onClick={openCreate}
-              leftIcon={<PlusIcon className="h-4 w-4" />}
-            >
+            <Button onClick={openCreate} leftIcon={<PlusIcon className="h-4 w-4" />}>
               Add Expense
             </Button>
           )
         }
       />
 
-      <Card className="relative overflow-visible">
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle>All Expenses ({total})</CardTitle>
-            <div className="flex items-center gap-2">
-              <ColumnsMenu
-                columns={columns.filter((c) => c.header)}
-                hidden={hiddenCols}
-                onToggle={toggleColumn}
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={fetchExpenses}
-                disabled={isFetching}
-                leftIcon={
-                  <ArrowPathIcon
-                    className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
-                  />
-                }
-              >
-                Refresh
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-
-        <CardBody className="space-y-4">
-          {/* Filter bar */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-            <Input
-              type="search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search paid to / reference / notes"
-              leftIcon={<MagnifyingGlassIcon className="h-4 w-4" />}
-            />
-            <Select
-              value={categoryId}
-              onChange={setCategoryId}
-              options={categoryFilterOptions}
-            />
-            <Select
-              value={activityId}
-              onChange={setActivityId}
-              options={activityFilterOptions}
-            />
-            {isSuperadmin ? (
-              <Select
-                value={selectedFoundationId}
-                onChange={setSelectedFoundationId}
-                options={foundationFilterOptions}
-              />
-            ) : (
-              <label className="flex h-9 items-center gap-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={includeDeleted}
-                  onChange={(e) => setIncludeDeleted(e.target.checked)}
-                  className="h-4 w-4 rounded border-border accent-primary"
-                />
-                Show deleted
-              </label>
-            )}
-          </div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <FormField label="From">
-              <Input
-                type="date"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-              />
-            </FormField>
-            <FormField label="To">
-              <Input
-                type="date"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-              />
-            </FormField>
-            <FormField label="Min Amount">
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={minAmount}
-                onChange={(e) => setMinAmount(e.target.value)}
-                placeholder="0.00"
-              />
-            </FormField>
-            <FormField label="Max Amount">
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={maxAmount}
-                onChange={(e) => setMaxAmount(e.target.value)}
-                placeholder="0.00"
-              />
-            </FormField>
-          </div>
-          {isSuperadmin && (
-            <label className="flex items-center gap-2 text-sm text-foreground">
-              <input
-                type="checkbox"
-                checked={includeDeleted}
-                onChange={(e) => setIncludeDeleted(e.target.checked)}
-                className="h-4 w-4 rounded border-border accent-primary"
-              />
-              Show deleted
-            </label>
-          )}
-
-          {/* Table — matches SearchDonation layout: raw <table> in CardBody
-              with an overlay spinner during refetch. Column visibility is
-              driven by hiddenCols from the CardHeader ColumnsMenu. */}
-          <div className="relative overflow-x-auto">
-            {isFetching && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 backdrop-blur-sm">
-                <Spinner />
-              </div>
-            )}
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-border bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  {columns
-                    .filter((c) => !hiddenCols.has(c.key))
-                    .map((col) => (
-                      <th
-                        key={col.key}
-                        className={`px-4 py-2.5 font-medium ${
-                          col.align === "right" ? "text-right" : ""
-                        } ${col.className || ""}`}
-                      >
-                        {col.header}
-                      </th>
-                    ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border text-foreground">
-                {!isFetching && items.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={
-                        columns.filter((c) => !hiddenCols.has(c.key)).length
-                      }
-                      className="px-4 py-10 text-center"
-                    >
-                      <EmptyState
-                        icon={BanknotesIcon}
-                        title="No expenses recorded"
-                        description="Record your first expense using the button above so it appears in reports."
-                      />
-                    </td>
-                  </tr>
+      <Card>
+        <CardBody>
+          <DataTable
+            columns={columns}
+            rows={items}
+            total={total}
+            loading={isFetching}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            sort={sort}
+            onSortChange={setSort}
+            globalSearch={search}
+            onGlobalSearchChange={setSearch}
+            searchPlaceholder="Search paid to / reference / notes"
+            columnFilters={colFilters}
+            onColumnFiltersChange={setColFilters}
+            emptyIcon={BanknotesIcon}
+            emptyTitle="No expenses recorded"
+            emptyDescription="Record your first expense using the button above so it appears in reports."
+            toolbarSlot={
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="w-44">
+                  <Select value={categoryId} onChange={setCategoryId} options={categoryFilterOptions} />
+                </div>
+                <div className="w-44">
+                  <Select value={activityId} onChange={setActivityId} options={activityFilterOptions} />
+                </div>
+                {isSuperadmin && (
+                  <div className="w-44">
+                    <Select
+                      value={selectedFoundationId}
+                      onChange={setSelectedFoundationId}
+                      options={foundationFilterOptions}
+                    />
+                  </div>
                 )}
-                {items.map((row) => (
-                  <tr key={row.id} className="hover:bg-muted/40">
-                    {columns
-                      .filter((c) => !hiddenCols.has(c.key))
-                      .map((col) => (
-                        <td
-                          key={col.key}
-                          className={`px-4 py-2.5 ${
-                            col.align === "right" ? "text-right" : ""
-                          }`}
-                        >
-                          {col.cell
-                            ? col.cell(row)
-                            : col.accessor
-                            ? col.accessor(row)
-                            : "—"}
-                        </td>
-                      ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                <div className="w-36">
+                  <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} title="From" />
+                </div>
+                <div className="w-36">
+                  <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} title="To" />
+                </div>
+                <div className="w-24">
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={minAmount}
+                    onChange={(e) => setMinAmount(e.target.value)}
+                    placeholder="Min ₹"
+                  />
+                </div>
+                <div className="w-24">
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={maxAmount}
+                    onChange={(e) => setMaxAmount(e.target.value)}
+                    placeholder="Max ₹"
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={includeDeleted}
+                    onChange={(e) => setIncludeDeleted(e.target.checked)}
+                    className="h-4 w-4 rounded border-border accent-primary"
+                  />
+                  Show deleted
+                </label>
+              </div>
+            }
+          />
         </CardBody>
-
-        <CardFooter className="justify-between">
-          <span className="text-sm text-muted-foreground">
-            Page {page} of {totalPages} · {total} total
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1 || isFetching}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages || isFetching}
-            >
-              Next
-            </Button>
-          </div>
-        </CardFooter>
       </Card>
 
       {/* Create / edit modal. */}
@@ -878,18 +626,10 @@ function ManageExpensesInner() {
         size="2xl"
         footer={
           <>
-            <Button
-              variant="outline"
-              onClick={closeModal}
-              disabled={formLoading}
-            >
+            <Button variant="outline" onClick={closeModal} disabled={formLoading}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              form="expense-form"
-              loading={formLoading}
-            >
+            <Button type="submit" form="expense-form" loading={formLoading}>
               {editing ? "Update Expense" : "Save Expense"}
             </Button>
           </>
@@ -900,11 +640,7 @@ function ManageExpensesInner() {
             {formError}
           </div>
         )}
-        <form
-          id="expense-form"
-          onSubmit={handleSubmit}
-          className="grid grid-cols-1 gap-4 md:grid-cols-2"
-        >
+        <form id="expense-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {isSuperadmin && !editing && (
             <div className="md:col-span-2">
               <FormField label="Foundation" required>
@@ -963,11 +699,7 @@ function ManageExpensesInner() {
               <BankAccountSelect
                 value={form.bankAccountId}
                 onChange={(v) => handleChange("bankAccountId", v)}
-                foundationId={
-                  isSuperadmin
-                    ? formFoundationId || undefined
-                    : undefined
-                }
+                foundationId={isSuperadmin ? formFoundationId || undefined : undefined}
                 disabled={formLoading}
                 error={!!fieldErr("bankAccountId")}
                 autoSelectDefault={!editing}
@@ -987,11 +719,7 @@ function ManageExpensesInner() {
             </FormField>
           </div>
           <div className="md:col-span-2">
-            <FormField
-              label="Reference No."
-              error={fieldErr("referenceNo")}
-              hint="Optional invoice / voucher number."
-            >
+            <FormField label="Reference No." error={fieldErr("referenceNo")} hint="Optional invoice / voucher number.">
               <Input
                 type="text"
                 value={form.referenceNo}

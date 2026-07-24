@@ -24,6 +24,9 @@ Multi-tenant **donation / foundation management** platform. Each tenant is a
   that gate writes when closed and scope dashboards / reports.
 - **Bank accounts + append-only ledger** — donations credit and expenses debit
   a bank account; corrections are reversing rows, never deletes.
+- **Transfers + Fixed Deposits** — internal money movement between the
+  foundation's own buckets: cash↔bank plus bank→FD / FD→bank, with an FD
+  register tracking principal, maturity, and interest earned on return.
 - **Accounting views** — income / expense ledgers, cash & bank books, and a
   reports statement built as read-only aggregates over the ledger.
 - Superadmin oversight (cross-foundation view, audit log, foundation CRUD).
@@ -117,13 +120,14 @@ AGENT_HANDOFF.md             # ← you are here
 
 Core models: `Foundation`, `User`, `Donor`, `Donation`, `Activity`,
 `ExpenseCategory`, `Expense`, `FinancialYear`, `BankAccount`, `Transaction`,
-`Attachment` (polymorphic scaffold), `AuditLog`.
+`Transfer`, `FixedDeposit`, `Attachment` (polymorphic scaffold), `AuditLog`.
 
 Enums: `Role`, `DonationType` (CASH/CHEQUE/ONLINE/UPI), `DonationStatus`
 (PENDING/RECEIVED), `DonationCategory` (GENERAL/CSR), `ActivityStatus`
 (PLANNED/IN_PROGRESS/COMPLETED/CANCELLED), `AuditAction`, `FYStatus`
 (ACTIVE/CLOSED), `BankAccountCategory` (GENERAL/CSR), `TransactionType`
-(CREDIT/DEBIT).
+(CREDIT/DEBIT), `TransferKind` (CASH_TO_BANK/BANK_TO_CASH/BANK_TO_FD/
+FD_TO_BANK), `FixedDepositStatus` (ACTIVE/CLOSED).
 
 **Donor identifier tiers**:
 - **Tier 1**: donor with PAN (`Donor.pan` unique per foundation when set).
@@ -143,6 +147,18 @@ by a range-exclusion constraint in migration SQL. `Foundation.fyStartMonth`
 (partial unique index). `Transaction` is an append-only ledger — donations post
 a CREDIT, expenses a DEBIT; corrections insert a reversing row (`reversalOf` /
 `reversedBy` chain). `balanceAfter` snapshots the account balance per row.
+**Cash vs bank is derived, not stored**: a `BankAccount` with
+`accountNumber = null` is a *cash* bucket; a set `accountNumber` is a *bank*
+account.
+
+**Transfer + FixedDeposit**: `Transfer` records an internal money movement
+(`kind` = one of the four). Cash↔bank transfers post two ledger legs (DEBIT
+source + CREDIT destination, both `entityType="Transfer"`); FD transfers post a
+single bank-side leg and open/close a `FixedDeposit`. `FixedDeposit` holds
+principal, optional interest rate, maturity, and — once returned — the matured
+`returnAmount` and derived interest (`returnAmount − principal`). Transfer legs
+are tied to their `Transfer` via the polymorphic `entityType`/`entityId`
+pointer (no typed FK on `Transaction`).
 
 **Attachment** is polymorphic (`entityType` + `entityId`) with pluggable
 `storageProvider` (`local` planned, `s3` planned) — DB scaffold only, no
@@ -167,7 +183,7 @@ layout:
 
 Mounted routers under `/api/v1` (see `routes/index.js`): `auth`, `foundations`,
 `admins`, `employees`, `donors`, `donations`, `activities`,
-`expense-categories`, `expenses`, `bank-accounts`, `transactions`,
+`expense-categories`, `expenses`, `bank-accounts`, `transactions`, `transfers`,
 `financial-years`, `stats`, `accounting`, `audits` — plus `GET /health`.
 
 Never talk to Prisma directly from a controller. Never bypass
@@ -201,6 +217,25 @@ Never talk to Prisma directly from a controller. Never bypass
 - **`modules/transactions/`**: read-only `GET /transactions` (the ledger view),
   gated by `BANK_ACCOUNT_VIEW`. Every row is written by the donation/expense
   services — there is no write endpoint.
+- **`modules/transfers/`**: internal money movement. `POST /transfers` handles
+  all four `TransferKind`s inside one `$transaction` (writes gated by
+  `transfer:manage`); `GET /transfers` and `GET /transfers/fixed-deposits`
+  (reads gated by `BANK_ACCOUNT_VIEW`); `DELETE /transfers/:id` reverses. The
+  service reuses `postTransaction` for the ledger legs, auto-provisions a
+  "Cash in Hand" account (`ensureCashAccount`) when a cash↔bank transfer needs
+  one, and resolves/guards the FY like donations/expenses. **Reversal**
+  (`deleteTransfer`) undoes every live ledger leg (loops `reverseTransactionFor`
+  since cash↔bank has two legs) and reverts the linked FD — a reversed BANK_TO_FD
+  soft-deletes the FD (blocked if already returned); a reversed FD_TO_BANK
+  re-opens it.
+- **Transfers must not be counted as income/expense** — `accounting.service.js`
+  filters `entityType != "Transfer"` in `sumLedger` and the income/expense
+  ledger listings, but **keeps** them in the cash/bank books (they move the
+  running balance). The reports statement splits `transferIn`/`transferOut` so
+  each account's closing balance still reconciles, and `getAccountingSummary`
+  returns a `fixedDeposits` block (`activeCount`, `activePrincipal`,
+  `interestEarned`). Anything summing the ledger for income/expense MUST apply
+  the same `entityType != "Transfer"` filter.
 
 ## 8. Frontend conventions
 
@@ -305,9 +340,20 @@ docker compose up -d backend migrator
   `BankAccountSelect`. Permissions: `bankAccount:manage`, `bankAccount:view`.
 - **Accounting module** (`modules/accounting/`): read-only income/expense
   ledgers, cash & bank books (running balances from `balanceAfter`), and a
-  per-account opening/closing reports statement. Frontend under
-  `features/accounting/`: `AccountingDashboard`, `IncomeLedger`,
+  per-account opening/closing reports statement (with a Transfers column).
+  Frontend under `features/accounting/`: `AccountingDashboard`, `IncomeLedger`,
   `ExpenseLedger`, `CashBook`, `BankBook`, `AccountingReports`.
+- **Transfers + Fixed Deposits** (`modules/transfers/`, migration
+  `20260713000000_transfers_and_fixed_deposits`): four transfer kinds
+  (cash↔bank, bank↔FD) posting paired/single ledger legs; auto-provisioned
+  "Cash in Hand" cash account; FD register with principal / rate / maturity /
+  return / derived interest; full reversal (undo legs + revert FD). Accounting
+  aggregates exclude transfer legs from income/expense but keep them in the
+  cash/bank books, and the reports statement + dashboard surface transfers and
+  FD holdings. Permission `transfer:manage` (reads reuse `bankAccount:view`).
+  Frontend: `features/transfers/` — `ManageTransfers.jsx` (Transfers +
+  Fixed Deposits tabs, kind-driven New Transfer modal), route
+  `/accounting/transfers`, **Transfer** item in the sidebar Accounting group.
 - **Settings**: `SettingsPage.jsx` with `AppearanceSettings` (theme/accent)
   and `OrganizationSettings` (foundation config incl. cash limit, WhatsApp,
   fyStartMonth).
@@ -362,8 +408,13 @@ portal, S3 attachment storage.
 
 ---
 
-_Last updated: 2026-07-13 — rewritten to match disk after the financial-year,
-bank-account, append-only ledger (`lib/bankLedger.js`), transactions, and
-accounting subsystems landed (none of which the prior 2026-07-03 handoff
-covered). Added §7 (FY/ledger/accounting internals) and flagged the
-uncommitted refactor + root scratch artifacts in §12._
+_Last updated: 2026-07-13 — **Transfers + Fixed Deposits** subsystem landed
+end-to-end (migration `20260713000000`, `modules/transfers/`,
+`features/transfers/ManageTransfers.jsx`, `transfer:manage` permission,
+accounting income/expense exclusion + reports Transfers column + dashboard FD
+block). Verified in Docker across all four kinds, income/expense exclusion,
+and reversal. Earlier the same day: rewrote the handoff to match disk after the
+financial-year, bank-account, append-only ledger, transactions, and accounting
+subsystems landed. Note the uncommitted refactor + root scratch artifacts
+flagged in §12 still stand — the Transfers work sits on top of the
+`refactor-baseline` branch and is likewise uncommitted._
