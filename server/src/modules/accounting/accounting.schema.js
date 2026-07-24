@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { paginationQuerySchema } from "../../lib/pagination.js";
+import { sortSchema, textFilter } from "../../lib/listQuery.js";
 
 // ISO date coercion shared by every accounting query. Accepts a Date instance
 // or a parseable string; anything else is rejected before the handler sees it.
@@ -26,6 +27,11 @@ export const ledgerListQuerySchema = paginationQuerySchema.extend({
   bankAccountId: z.string().trim().min(1).optional(),
   from: isoDateSchema.optional(),
   to: isoDateSchema.optional(),
+  // Per-column filter + sort for the income / expense ledger tables
+  // (DataTable). Ignored by the chronological cash / bank books, which keep
+  // their ascending running-balance order.
+  description: textFilter,
+  ...sortSchema(["occurredAt", "amount", "balanceAfter"]),
 });
 
 // Cash / Bank book listings mirror the ledger schema. The cash-vs-bank split

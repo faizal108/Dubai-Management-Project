@@ -27,6 +27,8 @@ import {
   ArrowTrendingUpIcon,
   ArrowTrendingDownIcon,
   DocumentChartBarIcon,
+  ArrowsRightLeftIcon,
+  CubeIcon,
 } from "@heroicons/react/24/outline";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -87,6 +89,12 @@ const navTree = [
         path: "/donation/search",
         role: [ROLES.ADMIN, ROLES.EMPLOYEE],
       },
+      {
+        name: "Other Income",
+        icon: <CubeIcon className="h-5 w-5" />,
+        path: "/other-income",
+        role: [ROLES.ADMIN, ROLES.SUPERADMIN, ROLES.EMPLOYEE],
+      },
     ],
   },
   {
@@ -106,13 +114,6 @@ const navTree = [
         icon: <BanknotesIcon className="h-5 w-5" />,
         path: "/expenses",
         role: [ROLES.ADMIN, ROLES.SUPERADMIN, ROLES.EMPLOYEE],
-      },
-      {
-        name: "Expense Categories",
-        icon: <TagIcon className="h-5 w-5" />,
-        path: "/expense-categories",
-        role: [ROLES.ADMIN, ROLES.SUPERADMIN],
-        perm: PERMISSIONS.EXPENSE_CATEGORY_MANAGE,
       },
     ],
   },
@@ -143,6 +144,13 @@ const navTree = [
         perm: PERMISSIONS.DASHBOARD_VIEW,
       },
       {
+        name: "Other Income Ledger",
+        icon: <CubeIcon className="h-5 w-5" />,
+        path: "/accounting/other-income",
+        role: [ROLES.ADMIN, ROLES.SUPERADMIN, ROLES.EMPLOYEE],
+        perm: PERMISSIONS.DASHBOARD_VIEW,
+      },
+      {
         name: "Cash Book",
         icon: <BookOpenIcon className="h-5 w-5" />,
         path: "/accounting/cash-book",
@@ -155,6 +163,13 @@ const navTree = [
         path: "/accounting/bank-book",
         role: [ROLES.ADMIN, ROLES.SUPERADMIN, ROLES.EMPLOYEE],
         perm: PERMISSIONS.DASHBOARD_VIEW,
+      },
+      {
+        name: "Transfer",
+        icon: <ArrowsRightLeftIcon className="h-5 w-5" />,
+        path: "/accounting/transfers",
+        role: [ROLES.ADMIN, ROLES.SUPERADMIN, ROLES.EMPLOYEE],
+        perm: PERMISSIONS.BANK_ACCOUNT_VIEW,
       },
       {
         name: "Reports",
@@ -170,6 +185,13 @@ const navTree = [
     name: "Administration",
     icon: <ShieldCheckIcon className="h-5 w-5" />,
     items: [
+      {
+        name: "Categories",
+        icon: <TagIcon className="h-5 w-5" />,
+        path: "/categories",
+        role: [ROLES.ADMIN, ROLES.SUPERADMIN],
+        perm: PERMISSIONS.CATEGORY_MANAGE,
+      },
       {
         name: "Employees",
         icon: <IdentificationIcon className="h-5 w-5" />,
@@ -342,21 +364,6 @@ const Sidebar = () => {
           )}
         </button>
       </div>
-
-      {/* Highlighted primary action — anyone with donation:create. */}
-      {can(PERMISSIONS.DONATION_CREATE) && (
-        <div className="px-3 pt-3">
-          <Link
-            to="/donation/add"
-            className={`flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-soft transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card ${
-              isOpen ? "" : "px-2"
-            }`}
-          >
-            <PlusCircleIcon className="h-5 w-5" />
-            {isOpen && <span>Add Donation</span>}
-          </Link>
-        </div>
-      )}
 
       {/* Financial-year selector. Only renders in the expanded view, and only
           when the caller actually has years available (SUPERADMIN without a

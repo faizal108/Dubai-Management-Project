@@ -92,6 +92,7 @@ export async function getSummary(user, { foundationId, financialYearId }) {
     whatsappOptInCount,
     whatsappSentCount,
     tierMixRaw,
+    otherIncomeAgg,
   ] = await Promise.all([
     prisma.donation.aggregate({
       where: { ...where, donationReceived: "RECEIVED" },
@@ -160,6 +161,13 @@ export async function getSummary(user, { foundationId, financialYearId }) {
         ${foundationFilter}
       GROUP BY 1
     `,
+    // In-kind / other income — non-cash, tracked separately (never in the
+    // ledger). Count + optional estimated value for the dashboard tile.
+    prisma.otherIncome.aggregate({
+      where,
+      _sum: { estimatedValue: true },
+      _count: { _all: true },
+    }),
   ]);
 
   // SUPERADMIN platform-wide view also surfaces foundation count to power
@@ -213,6 +221,11 @@ export async function getSummary(user, { foundationId, financialYearId }) {
     whatsappOptInCount,
     whatsappSentCount,
     donorTierMix,
+    // In-kind / other income (non-cash) — separate from all money figures.
+    otherIncome: {
+      count: otherIncomeAgg._count._all,
+      estimatedValue: Number(otherIncomeAgg._sum.estimatedValue ?? 0),
+    },
   };
 }
 
@@ -296,7 +309,7 @@ export async function getTrends(user, { range, foundationId, financialYearId }) 
   // labels without a follow-up call.
   const categoryIds = expenseByCategoryRaw.map((r) => r.categoryId);
   const categories = categoryIds.length
-    ? await prisma.expenseCategory.findMany({
+    ? await prisma.category.findMany({
         where: { id: { in: categoryIds } },
         select: { id: true, name: true },
       })

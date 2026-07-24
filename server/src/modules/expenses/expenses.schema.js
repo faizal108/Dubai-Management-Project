@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { paginationQuerySchema } from "../../lib/pagination.js";
+import { sortSchema, textFilter } from "../../lib/listQuery.js";
 
 // Decimal-as-string keeps the wire format free from float drift. Matches the
 // same shape used by donations.schema.js so both currency modules validate
@@ -91,4 +92,8 @@ export const listExpensesQuerySchema = paginationQuerySchema.extend({
   to: isoDateSchema.optional(),
   minAmount: amountFilterSchema,
   maxAmount: amountFilterSchema,
+  // Per-column filter + sort (DataTable).
+  paidTo: textFilter,
+  referenceNo: textFilter,
+  ...sortSchema(["paidOn", "amount", "paidTo", "createdAt"]),
 });

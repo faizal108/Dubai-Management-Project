@@ -140,13 +140,14 @@ const AccountingReports = () => {
                   <th className="px-4 py-2.5 text-right font-medium">Income</th>
                   <th className="px-4 py-2.5 text-right font-medium">Expense</th>
                   <th className="px-4 py-2.5 text-right font-medium">Net</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Transfers</th>
                   <th className="px-4 py-2.5 text-right font-medium">Closing</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border text-foreground">
                 {!loading && rows.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center">
+                    <td colSpan={8} className="px-4 py-10 text-center">
                       <EmptyState
                         icon={BanknotesIcon}
                         title="No accounts to report"
@@ -179,6 +180,17 @@ const AccountingReports = () => {
                     >
                       ₹{formatAmount(r.net)}
                     </td>
+                    <td
+                      className={`px-4 py-2.5 text-right tabular-nums ${
+                        (r.transferNet ?? 0) === 0
+                          ? "text-muted-foreground"
+                          : (r.transferNet ?? 0) > 0
+                          ? "text-success"
+                          : "text-rose-600 dark:text-rose-400"
+                      }`}
+                    >
+                      {(r.transferNet ?? 0) > 0 ? "+" : ""}₹{formatAmount(r.transferNet ?? 0)}
+                    </td>
                     <td className="px-4 py-2.5 text-right tabular-nums font-semibold">
                       ₹{formatAmount(r.closing)}
                     </td>
@@ -206,6 +218,9 @@ const AccountingReports = () => {
                       }`}
                     >
                       ₹{formatAmount(totals.net)}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">
+                      {(totals.transferNet ?? 0) > 0 ? "+" : ""}₹{formatAmount(totals.transferNet ?? 0)}
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums">
                       ₹{formatAmount(totals.closing)}

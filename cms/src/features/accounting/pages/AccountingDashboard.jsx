@@ -11,6 +11,7 @@ import {
   BuildingLibraryIcon,
   ScaleIcon,
   WalletIcon,
+  CubeIcon,
 } from "@heroicons/react/24/outline";
 
 import { useAuth } from "../../../context/AuthContext";
@@ -76,6 +77,7 @@ const AccountingDashboard = () => {
   const totals = summary?.totals ?? { income: 0, expense: 0, net: 0 };
   const cash = summary?.cash ?? { onHand: 0, accounts: [] };
   const bank = summary?.bank ?? { onHand: 0, accounts: [] };
+  const otherIncome = summary?.otherIncome ?? { count: 0, estimatedValue: 0 };
   const fyLabel = summary?.financialYear?.label;
 
   const accountsCombined = useMemo(
@@ -140,7 +142,7 @@ const AccountingDashboard = () => {
         />
       </div>
 
-      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
         <StatTile
           title="Cash on Hand"
           value={cash.onHand}
@@ -156,6 +158,14 @@ const AccountingDashboard = () => {
           tone="primary"
           isCurrency
           hint={`${bank.accounts?.length ?? 0} bank accounts`}
+        />
+        <StatTile
+          title="Other Income (in-kind)"
+          value={otherIncome.estimatedValue}
+          icon={CubeIcon}
+          tone="info"
+          isCurrency
+          hint={`${otherIncome.count} receipt(s) · est. value, not cash`}
         />
       </div>
 

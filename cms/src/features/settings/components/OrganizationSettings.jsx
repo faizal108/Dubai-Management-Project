@@ -10,14 +10,17 @@ import {
   CardHeader,
   CardTitle,
   FormField,
+  ImageUpload,
   Input,
   Spinner,
+  Textarea,
 } from "../../../components/ui";
 import { getMyFoundation, updateMyFoundation } from "../../foundations/api";
 
 // Mirrors the backend e164 regex in foundations.schema.js. Kept local so we
 // can surface inline validation before the round-trip.
 const E164_REGEX = /^\+[1-9]\d{7,14}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEFAULT_CASH_LIMIT = "2000";
 
 // Strip Decimal noise ("2000.00" → "2000") for display; keep raw string so
@@ -32,6 +35,12 @@ const EMPTY_FORM = {
   cashLimit: DEFAULT_CASH_LIMIT,
   hasWhatsappBusiness: false,
   whatsappBusinessNumber: "",
+  logoUrl: null,
+  signatureUrl: null,
+  receiptName: "",
+  registrationNumber: "",
+  email: "",
+  address: "",
 };
 
 export default function OrganizationSettings() {
@@ -47,6 +56,12 @@ export default function OrganizationSettings() {
       cashLimit: normaliseCashLimit(f?.cashLimit) || DEFAULT_CASH_LIMIT,
       hasWhatsappBusiness: !!f?.hasWhatsappBusiness,
       whatsappBusinessNumber: f?.whatsappBusinessNumber || "",
+      logoUrl: f?.logoUrl || null,
+      signatureUrl: f?.signatureUrl || null,
+      receiptName: f?.receiptName || "",
+      registrationNumber: f?.registrationNumber || "",
+      email: f?.email || "",
+      address: f?.address || "",
     });
   }, []);
 
@@ -75,8 +90,6 @@ export default function OrganizationSettings() {
     const next = type === "checkbox" ? checked : value;
     setForm((prev) => {
       const merged = { ...prev, [name]: next };
-      // Clearing the WhatsApp toggle drops the number so we never POST a
-      // stale value the backend would reject.
       if (name === "hasWhatsappBusiness" && next === false) {
         merged.whatsappBusinessNumber = "";
       }
@@ -84,6 +97,9 @@ export default function OrganizationSettings() {
     });
     setFieldErrors((prev) => ({ ...prev, [name]: undefined }));
   };
+
+  const setField = (name, value) =>
+    setForm((prev) => ({ ...prev, [name]: value }));
 
   const validateLocally = () => {
     const errs = {};
@@ -94,12 +110,12 @@ export default function OrganizationSettings() {
       errs.cashLimit = ["Cash limit cannot be negative"];
     }
     if (form.hasWhatsappBusiness) {
-      const num = form.whatsappBusinessNumber.trim();
-      if (!E164_REGEX.test(num)) {
-        errs.whatsappBusinessNumber = [
-          "Use E.164 format, e.g. +911234567890",
-        ];
+      if (!E164_REGEX.test(form.whatsappBusinessNumber.trim())) {
+        errs.whatsappBusinessNumber = ["Use E.164 format, e.g. +911234567890"];
       }
+    }
+    if (form.email.trim() && !EMAIL_REGEX.test(form.email.trim())) {
+      errs.email = ["Enter a valid email address"];
     }
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
@@ -118,6 +134,13 @@ export default function OrganizationSettings() {
         whatsappBusinessNumber: form.hasWhatsappBusiness
           ? form.whatsappBusinessNumber.trim()
           : null,
+        // null clears; data URL / text otherwise.
+        logoUrl: form.logoUrl || null,
+        signatureUrl: form.signatureUrl || null,
+        receiptName: form.receiptName.trim() || null,
+        registrationNumber: form.registrationNumber.trim() || null,
+        email: form.email.trim() || null,
+        address: form.address.trim() || null,
       };
       const res = await updateMyFoundation(payload);
       setFoundation(res?.foundation || null);
@@ -125,9 +148,7 @@ export default function OrganizationSettings() {
       toast.success("Organization settings updated.");
     } catch (err) {
       const envelope = err.apiError;
-      if (envelope?.details?.fieldErrors) {
-        setFieldErrors(envelope.details.fieldErrors);
-      }
+      if (envelope?.details?.fieldErrors) setFieldErrors(envelope.details.fieldErrors);
       if (envelope?.message) setFormError(envelope.message);
       console.error("Update foundation error:", err);
     } finally {
@@ -162,38 +183,39 @@ export default function OrganizationSettings() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <CardTitle>{foundation.name}</CardTitle>
-              <CardDescription>
-                Org-level compliance and messaging configuration.
-              </CardDescription>
-            </div>
-            <Badge variant="outline" className="font-mono text-xs">
-              {foundation.pan}
-            </Badge>
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <CardTitle>{foundation.name}</CardTitle>
+            <CardDescription>
+              Compliance, messaging, and receipt branding for your organization.
+            </CardDescription>
           </div>
-        </CardHeader>
-        <CardBody>
-          {formError && (
-            <div className="mb-4 rounded-md border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
-              {formError}
-            </div>
-          )}
+          <Badge variant="outline" className="font-mono text-xs">
+            {foundation.pan}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardBody>
+        {formError && (
+          <div className="mb-4 rounded-md border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
+            {formError}
+          </div>
+        )}
 
-          <form
-            id="org-settings-form"
-            onSubmit={handleSubmit}
-            className="grid grid-cols-1 gap-5 md:grid-cols-2"
-          >
+        <form
+          id="org-settings-form"
+          onSubmit={handleSubmit}
+          className="space-y-8"
+        >
+          {/* Compliance + messaging */}
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
             <div className="md:col-span-2">
               <FormField
                 label="Cash donation limit (₹)"
                 required
-                hint="Per Section 269ST compliance — the maximum a single CASH donation can be. Donors can pick a chip or enter a custom amount up to this cap."
+                hint="Per Section 269ST compliance — the maximum a single CASH donation can be."
                 error={fieldErr("cashLimit")}
               >
                 <Input
@@ -222,13 +244,10 @@ export default function OrganizationSettings() {
                   className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
                 />
                 <span className="flex flex-col">
-                  <span className="font-medium">
-                    We have a WhatsApp Business number
-                  </span>
+                  <span className="font-medium">We have a WhatsApp Business number</span>
                   <span className="text-xs text-muted-foreground">
-                    When enabled, donors get a "Send receipt on WhatsApp"
-                    option at donation time. Status updates appear on the
-                    donation row.
+                    When enabled, donors get a "Send receipt on WhatsApp" option at
+                    donation time.
                   </span>
                 </span>
               </label>
@@ -255,21 +274,94 @@ export default function OrganizationSettings() {
                 </FormField>
               </div>
             )}
-          </form>
-        </CardBody>
-        <CardFooter className="justify-end gap-2">
-          <Button
-            variant="outline"
-            onClick={() => hydrate(foundation)}
-            disabled={saving}
-          >
-            Reset
-          </Button>
-          <Button type="submit" form="org-settings-form" loading={saving}>
-            Save changes
-          </Button>
-        </CardFooter>
-      </Card>
-    </div>
+          </div>
+
+          {/* Receipt & branding */}
+          <div className="space-y-5 border-t border-border pt-6">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Receipt & Branding</h3>
+              <p className="text-xs text-muted-foreground">
+                These appear on printed / PDF donation receipts. Leave blank to use
+                the platform defaults.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <FormField label="Logo">
+                <ImageUpload
+                  value={form.logoUrl}
+                  onChange={(v) => setField("logoUrl", v)}
+                  disabled={saving}
+                  hint="Shown at the top of the receipt. PNG with transparency works best."
+                />
+              </FormField>
+              <FormField label="Signature / Stamp">
+                <ImageUpload
+                  value={form.signatureUrl}
+                  onChange={(v) => setField("signatureUrl", v)}
+                  disabled={saving}
+                  hint="Shown near the receipt footer."
+                />
+              </FormField>
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              <FormField
+                label="Receipt display name"
+                hint="The organization name printed on receipts. Defaults to the foundation name."
+              >
+                <Input
+                  name="receiptName"
+                  placeholder={foundation.name}
+                  value={form.receiptName}
+                  onChange={handleChange}
+                  disabled={saving}
+                />
+              </FormField>
+              <FormField label="Registration number" error={fieldErr("registrationNumber")}>
+                <Input
+                  name="registrationNumber"
+                  placeholder="e.g. 56/111/…"
+                  value={form.registrationNumber}
+                  onChange={handleChange}
+                  disabled={saving}
+                />
+              </FormField>
+              <FormField label="Email" error={fieldErr("email")}>
+                <Input
+                  type="email"
+                  name="email"
+                  placeholder="org@example.com"
+                  value={form.email}
+                  onChange={handleChange}
+                  disabled={saving}
+                  error={!!fieldErr("email")}
+                />
+              </FormField>
+              <div className="md:col-span-2">
+                <FormField label="Address" error={fieldErr("address")}>
+                  <Textarea
+                    name="address"
+                    rows={2}
+                    placeholder="Street, city, pincode"
+                    value={form.address}
+                    onChange={handleChange}
+                    disabled={saving}
+                  />
+                </FormField>
+              </div>
+            </div>
+          </div>
+        </form>
+      </CardBody>
+      <CardFooter className="justify-end gap-2">
+        <Button variant="outline" onClick={() => hydrate(foundation)} disabled={saving}>
+          Reset
+        </Button>
+        <Button type="submit" form="org-settings-form" loading={saving}>
+          Save changes
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }

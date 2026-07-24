@@ -35,8 +35,10 @@ export function createApp() {
       credentials: true,
     })
   );
-  app.use(express.json({ limit: "1mb" }));
-  app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+  // 2mb headroom so a foundation branding save (base64 logo + signature, both
+  // resized client-side) never hits the ceiling. Ordinary JSON stays tiny.
+  app.use(express.json({ limit: "2mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
   // Global limiter; per-route limiters (e.g. auth) layer on top.
   app.use(
