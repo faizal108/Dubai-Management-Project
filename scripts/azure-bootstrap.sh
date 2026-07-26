@@ -100,15 +100,25 @@ if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
 fi
 az ad sp create --id "$APP_ID" --only-show-errors -o none 2>/dev/null || true
 
-# Federated credential scoped to pushes on main — matches the deploy
-# workflow's trigger. Add another block with a different subject
-# (e.g. ref:refs/heads/staging or pull_request) if you branch out later.
-FED_CRED_NAME="gh-main-branch"
+# Federated credential subject uses "environment:production" (not
+# "ref:refs/heads/main") because both deploy jobs in deploy.yml declare
+# `environment: production` — GitHub's OIDC subject claim reflects that
+# instead of the branch ref whenever a job targets an environment.
+#
+# GOTCHA: if this repo has ever been renamed, GitHub's *actual* subject
+# claim uses an ID-qualified form instead — "repo:OWNER@ownerId/REPO@repoId:
+# environment:production" — to keep OIDC trust stable across renames. If the
+# workflow fails with AADSTS700213 ("No matching federated identity record
+# found"), the error message includes the exact subject GitHub presented —
+# copy it verbatim into a new federated credential (`az ad app
+# federated-credential create`) rather than trying to guess the ID-qualified
+# form here.
+FED_CRED_NAME="gh-production-environment"
 if ! az ad app federated-credential show --id "$APP_ID" --federated-credential-id "$FED_CRED_NAME" --only-show-errors -o none 2>/dev/null; then
   az ad app federated-credential create --id "$APP_ID" --parameters "{
     \"name\": \"$FED_CRED_NAME\",
     \"issuer\": \"https://token.actions.githubusercontent.com\",
-    \"subject\": \"repo:${GITHUB_REPO}:ref:refs/heads/main\",
+    \"subject\": \"repo:${GITHUB_REPO}:environment:production\",
     \"audiences\": [\"api://AzureADTokenExchange\"]
   }" --only-show-errors -o none
 fi
