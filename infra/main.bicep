@@ -166,7 +166,12 @@ resource backendApp 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'false' }
         { name: 'NODE_ENV', value: 'production' }
         { name: 'PORT', value: '4000' }
-        { name: 'DATABASE_URL', value: 'postgresql://${postgresAdminLogin}:${postgresAdminPassword}@${postgres.properties.fullyQualifiedDomainName}:5432/${postgresDatabaseName}?schema=public&sslmode=require' }
+        // uriComponent() is required here: openssl-generated passwords (base64
+        // or similar) can contain '/', '+', '=', '@', etc. — raw-interpolating
+        // an unencoded password into a connection string breaks the URL parser
+        // (Prisma fails with P1013 "invalid port number" when '/' lands where
+        // it expects host:port).
+        { name: 'DATABASE_URL', value: 'postgresql://${uriComponent(postgresAdminLogin)}:${uriComponent(postgresAdminPassword)}@${postgres.properties.fullyQualifiedDomainName}:5432/${postgresDatabaseName}?schema=public&sslmode=require' }
         { name: 'JWT_SECRET', value: jwtSecret }
         { name: 'JWT_EXPIRES_IN', value: '1d' }
         { name: 'BCRYPT_SALT_ROUNDS', value: '10' }
