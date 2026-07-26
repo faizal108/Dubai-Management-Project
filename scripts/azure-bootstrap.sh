@@ -72,6 +72,29 @@ else
 fi
 
 echo "== 2/5: Deploying infra/main.bicep =="
+# backendImage/frontendImage default to a public placeholder in main.bicep.
+# If the Web Apps already exist and CI has since deployed a real image, we
+# must pass that image back explicitly here — otherwise this (idempotent,
+# re-runnable) deployment would silently reset both apps back to the
+# placeholder, undoing every CI deploy since bootstrap last ran.
+EXTRA_IMAGE_PARAMS=()
+EXISTING_BACKEND_NAME=$(az webapp list --resource-group "$RESOURCE_GROUP" --query "[?starts_with(name, '${NAME_PREFIX}-backend-')].name | [0]" -o tsv --only-show-errors 2>/dev/null || true)
+if [ -n "$EXISTING_BACKEND_NAME" ] && [ "$EXISTING_BACKEND_NAME" != "null" ]; then
+  CURRENT_BACKEND_LFX=$(az webapp config show --name "$EXISTING_BACKEND_NAME" --resource-group "$RESOURCE_GROUP" --query linuxFxVersion -o tsv --only-show-errors 2>/dev/null || true)
+  CURRENT_BACKEND_IMAGE="${CURRENT_BACKEND_LFX#DOCKER|}"
+  if [ -n "$CURRENT_BACKEND_IMAGE" ]; then
+    EXTRA_IMAGE_PARAMS+=("backendImage=$CURRENT_BACKEND_IMAGE")
+  fi
+fi
+EXISTING_FRONTEND_NAME=$(az webapp list --resource-group "$RESOURCE_GROUP" --query "[?starts_with(name, '${NAME_PREFIX}-frontend-')].name | [0]" -o tsv --only-show-errors 2>/dev/null || true)
+if [ -n "$EXISTING_FRONTEND_NAME" ] && [ "$EXISTING_FRONTEND_NAME" != "null" ]; then
+  CURRENT_FRONTEND_LFX=$(az webapp config show --name "$EXISTING_FRONTEND_NAME" --resource-group "$RESOURCE_GROUP" --query linuxFxVersion -o tsv --only-show-errors 2>/dev/null || true)
+  CURRENT_FRONTEND_IMAGE="${CURRENT_FRONTEND_LFX#DOCKER|}"
+  if [ -n "$CURRENT_FRONTEND_IMAGE" ]; then
+    EXTRA_IMAGE_PARAMS+=("frontendImage=$CURRENT_FRONTEND_IMAGE")
+  fi
+fi
+
 DEPLOY_OUTPUT=$(az deployment group create \
   --resource-group "$RESOURCE_GROUP" \
   --template-file infra/main.bicep \
@@ -81,6 +104,7 @@ DEPLOY_OUTPUT=$(az deployment group create \
                postgresAdminPassword="$POSTGRES_ADMIN_PASSWORD" \
                jwtSecret="$JWT_SECRET" \
                seedSuperadminPassword="$SEED_SUPERADMIN_PASSWORD" \
+               "${EXTRA_IMAGE_PARAMS[@]+"${EXTRA_IMAGE_PARAMS[@]}"}" \
   --only-show-errors -o json)
 
 ACR_LOGIN_SERVER=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.acrLoginServer.value')
