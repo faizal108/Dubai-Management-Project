@@ -1,15 +1,22 @@
-// Donation Management Platform — Azure Container Apps infrastructure.
+// Donation Management Platform — Azure App Service (Linux containers) infra.
 //
 // Deployed with `az deployment group create` against a resource group that
 // already exists (created by scripts/azure-bootstrap.sh). See
 // infra/README.md for the full first-time setup + parameter list.
 //
-// Layout: one Container Apps Environment holding two apps (backend, frontend)
-// and one Job (migrate + seed), backed by Azure Database for PostgreSQL
-// Flexible Server and an Azure Container Registry.
+// Uses App Service for Containers rather than Container Apps because this
+// subscription is capped at 1 Container Apps Environment total and that
+// slot is already used by an unrelated app — App Service has no such cap
+// and shares nothing with it. One App Service Plan hosts two Web Apps
+// (backend, frontend); Postgres migrations + seed run automatically on
+// every backend container start (RUN_MIGRATIONS_ON_START / RUN_SEED_ON_START,
+// both idempotent) since App Service has no one-shot Job primitive.
 
-@description('Azure region for all resources.')
+@description('Azure region for ACR + Postgres.')
 param location string = resourceGroup().location
+
+@description('Azure region for the App Service Plan + Web Apps. Separate from `location` because Linux App Service capacity is allocated per-region and can run out independently of Postgres/ACR capacity in the same region — cross-region is fine functionally (Postgres allows public SSL connections from anywhere).')
+param appServiceLocation string = location
 
 @description('Short name prefix used to build resource names.')
 param namePrefix string = 'donation'
@@ -28,29 +35,37 @@ param postgresDatabaseName string = 'donation_platform'
 @description('JWT signing secret for the backend (min 16 chars).')
 param jwtSecret string
 
-@description('Seed superadmin email, used only by the migration job on first run.')
+@description('Seed superadmin email, used only on first backend start.')
 param seedSuperadminEmail string = 'superadmin@example.com'
 
 @secure()
-@description('Seed superadmin password, used only by the migration job on first run.')
+@description('Seed superadmin password, used only on first backend start.')
 param seedSuperadminPassword string
 
-@description('Full ACR image reference for the backend, e.g. myacr.azurecr.io/donation-backend:sha-abcdef. Defaults to a public placeholder for first-time bootstrap before any image has been pushed.')
-param backendImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
+@description('Backend container image (registry/repo:tag, no DOCKER| prefix). Defaults to a public placeholder for first-time bootstrap before any image has been pushed.')
+param backendImage string = 'mcr.microsoft.com/appsvc/staticsite:latest'
 
-@description('Full ACR image reference for the frontend. Defaults to a public placeholder for first-time bootstrap.')
-param frontendImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
+@description('Frontend container image (registry/repo:tag). Defaults to a public placeholder for first-time bootstrap.')
+param frontendImage string = 'mcr.microsoft.com/appsvc/staticsite:latest'
 
 @description('Extra allowed CORS origins for the backend, comma-separated (the frontend app URL is always included automatically).')
 param extraCorsOrigins string = ''
 
+@description('App Service Plan SKU. B1 is the cheapest tier that supports custom Linux containers (F1/shared tiers do not).')
+param appServicePlanSku string = 'B1'
+
 var acrName = toLower('${namePrefix}acr${uniqueString(resourceGroup().id)}')
-var postgresServerName = toLower('${namePrefix}-psql-${uniqueString(resourceGroup().id)}')
-var logAnalyticsName = '${namePrefix}-logs'
-var containerAppsEnvName = '${namePrefix}-env'
-var backendAppName = '${namePrefix}-backend'
-var frontendAppName = '${namePrefix}-frontend'
-var migrationJobName = '${namePrefix}-migrate'
+// The 'psql02' salt (bump it again if this ever needs to change) exists
+// because Postgres Flexible Server names stay reserved for a cooldown period
+// after a failed/deleted server — without a salt, a deterministic name from
+// resourceGroup().id alone would keep colliding with an earlier attempt.
+var postgresServerName = toLower('${namePrefix}-psql-${uniqueString(resourceGroup().id, 'psql02')}')
+var appServicePlanName = '${namePrefix}-plan'
+// azurewebsites.net hostnames are globally unique across all of Azure, not
+// just this subscription — the uniqueString suffix avoids colliding with
+// someone else's app.
+var backendAppName = '${namePrefix}-backend-${uniqueString(resourceGroup().id)}'
+var frontendAppName = '${namePrefix}-frontend-${uniqueString(resourceGroup().id)}'
 
 // ---------------------------------------------------------------------------
 // Container Registry
@@ -102,7 +117,7 @@ resource postgresDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06
   }
 }
 
-// MVP simplification: Container Apps has no fixed outbound IP unless
+// MVP simplification: App Service has no fixed outbound IP unless
 // VNet-integrated, so we allow all Azure-internal traffic to reach the DB.
 // Harden later with VNet integration + a private-only firewall rule.
 resource postgresFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = {
@@ -115,89 +130,55 @@ resource postgresFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewa
 }
 
 // ---------------------------------------------------------------------------
-// Log Analytics + Container Apps Environment
+// App Service Plan — one Linux plan hosts both Web Apps (cheaper than one
+// plan per app; B1 has ample headroom for a low-traffic demo).
 // ---------------------------------------------------------------------------
-resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: logAnalyticsName
-  location: location
-  properties: {
-    sku: {
-      name: 'PerGB2018'
-    }
-    retentionInDays: 30
+resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
+  name: appServicePlanName
+  location: appServiceLocation
+  kind: 'linux'
+  sku: {
+    name: appServicePlanSku
   }
-}
-
-resource containerAppsEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
-  name: containerAppsEnvName
-  location: location
   properties: {
-    appLogsConfiguration: {
-      destination: 'log-analytics'
-      logAnalyticsConfiguration: {
-        customerId: logAnalytics.properties.customerId
-        sharedKey: logAnalytics.listKeys().primarySharedKey
-      }
-    }
+    reserved: true
   }
 }
 
 // ---------------------------------------------------------------------------
-// Backend Container App
+// Backend Web App
 // ---------------------------------------------------------------------------
-resource backendApp 'Microsoft.App/containerApps@2024-03-01' = {
+resource backendApp 'Microsoft.Web/sites@2023-12-01' = {
   name: backendAppName
-  location: location
+  location: appServiceLocation
   identity: {
     type: 'SystemAssigned'
   }
   properties: {
-    managedEnvironmentId: containerAppsEnv.id
-    configuration: {
-      activeRevisionsMode: 'Single'
-      ingress: {
-        external: true
-        targetPort: 4000
-        allowInsecure: false
-      }
-      registries: [
-        {
-          server: acr.properties.loginServer
-          identity: 'system'
-        }
+    serverFarmId: appServicePlan.id
+    httpsOnly: true
+    siteConfig: {
+      linuxFxVersion: 'DOCKER|${backendImage}'
+      acrUseManagedIdentityCreds: true
+      healthCheckPath: '/api/v1/health'
+      appSettings: [
+        { name: 'WEBSITES_PORT', value: '4000' }
+        { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'false' }
+        { name: 'NODE_ENV', value: 'production' }
+        { name: 'PORT', value: '4000' }
+        { name: 'DATABASE_URL', value: 'postgresql://${postgresAdminLogin}:${postgresAdminPassword}@${postgres.properties.fullyQualifiedDomainName}:5432/${postgresDatabaseName}?schema=public&sslmode=require' }
+        { name: 'JWT_SECRET', value: jwtSecret }
+        { name: 'JWT_EXPIRES_IN', value: '1d' }
+        { name: 'BCRYPT_SALT_ROUNDS', value: '10' }
+        { name: 'CORS_ORIGIN', value: empty(extraCorsOrigins) ? 'https://${frontendAppName}.azurewebsites.net' : 'https://${frontendAppName}.azurewebsites.net,${extraCorsOrigins}' }
+        { name: 'LOG_LEVEL', value: 'info' }
+        { name: 'RATE_LIMIT_WINDOW_MS', value: '60000' }
+        { name: 'RATE_LIMIT_MAX', value: '300' }
+        { name: 'RUN_MIGRATIONS_ON_START', value: 'true' }
+        { name: 'RUN_SEED_ON_START', value: 'true' }
+        { name: 'SEED_SUPERADMIN_EMAIL', value: seedSuperadminEmail }
+        { name: 'SEED_SUPERADMIN_PASSWORD', value: seedSuperadminPassword }
       ]
-      secrets: [
-        { name: 'database-url', value: 'postgresql://${postgresAdminLogin}:${postgresAdminPassword}@${postgres.properties.fullyQualifiedDomainName}:5432/${postgresDatabaseName}?schema=public&sslmode=require' }
-        { name: 'jwt-secret', value: jwtSecret }
-      ]
-    }
-    template: {
-      containers: [
-        {
-          name: 'backend'
-          image: backendImage
-          resources: {
-            cpu: json('0.5')
-            memory: '1Gi'
-          }
-          env: [
-            { name: 'NODE_ENV', value: 'production' }
-            { name: 'PORT', value: '4000' }
-            { name: 'DATABASE_URL', secretRef: 'database-url' }
-            { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
-            { name: 'JWT_EXPIRES_IN', value: '1d' }
-            { name: 'BCRYPT_SALT_ROUNDS', value: '10' }
-            { name: 'CORS_ORIGIN', value: empty(extraCorsOrigins) ? 'https://${frontendAppName}.${containerAppsEnv.properties.defaultDomain}' : 'https://${frontendAppName}.${containerAppsEnv.properties.defaultDomain},${extraCorsOrigins}' }
-            { name: 'LOG_LEVEL', value: 'info' }
-            { name: 'RATE_LIMIT_WINDOW_MS', value: '60000' }
-            { name: 'RATE_LIMIT_MAX', value: '300' }
-          ]
-        }
-      ]
-      scale: {
-        minReplicas: 1
-        maxReplicas: 3
-      }
     }
   }
 }
@@ -213,45 +194,25 @@ resource backendAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 // ---------------------------------------------------------------------------
-// Frontend Container App
+// Frontend Web App
 // ---------------------------------------------------------------------------
-resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
+resource frontendApp 'Microsoft.Web/sites@2023-12-01' = {
   name: frontendAppName
-  location: location
+  location: appServiceLocation
   identity: {
     type: 'SystemAssigned'
   }
   properties: {
-    managedEnvironmentId: containerAppsEnv.id
-    configuration: {
-      activeRevisionsMode: 'Single'
-      ingress: {
-        external: true
-        targetPort: 80
-        allowInsecure: false
-      }
-      registries: [
-        {
-          server: acr.properties.loginServer
-          identity: 'system'
-        }
+    serverFarmId: appServicePlan.id
+    httpsOnly: true
+    siteConfig: {
+      linuxFxVersion: 'DOCKER|${frontendImage}'
+      acrUseManagedIdentityCreds: true
+      healthCheckPath: '/'
+      appSettings: [
+        { name: 'WEBSITES_PORT', value: '80' }
+        { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'false' }
       ]
-    }
-    template: {
-      containers: [
-        {
-          name: 'frontend'
-          image: frontendImage
-          resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
-          }
-        }
-      ]
-      scale: {
-        minReplicas: 1
-        maxReplicas: 3
-      }
     }
   }
 }
@@ -267,78 +228,13 @@ resource frontendAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
 }
 
 // ---------------------------------------------------------------------------
-// Migration Job (prisma migrate deploy && seed) — reuses the backend image.
-// Triggered manually by GitHub Actions after every backend deploy via
-// `az containerapp job start`.
-// ---------------------------------------------------------------------------
-resource migrationJob 'Microsoft.App/jobs@2024-03-01' = {
-  name: migrationJobName
-  location: location
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    environmentId: containerAppsEnv.id
-    configuration: {
-      triggerType: 'Manual'
-      replicaTimeout: 600
-      replicaRetryLimit: 1
-      manualTriggerConfig: {
-        parallelism: 1
-        replicaCompletionCount: 1
-      }
-      registries: [
-        {
-          server: acr.properties.loginServer
-          identity: 'system'
-        }
-      ]
-      secrets: [
-        { name: 'database-url', value: 'postgresql://${postgresAdminLogin}:${postgresAdminPassword}@${postgres.properties.fullyQualifiedDomainName}:5432/${postgresDatabaseName}?schema=public&sslmode=require' }
-        { name: 'seed-superadmin-password', value: seedSuperadminPassword }
-      ]
-    }
-    template: {
-      containers: [
-        {
-          name: 'migrate'
-          image: backendImage
-          command: [ 'sh', '-c', 'npx prisma migrate deploy && node prisma/seed.js' ]
-          resources: {
-            cpu: json('0.5')
-            memory: '1Gi'
-          }
-          env: [
-            { name: 'DATABASE_URL', secretRef: 'database-url' }
-            { name: 'SEED_SUPERADMIN_EMAIL', value: seedSuperadminEmail }
-            { name: 'SEED_SUPERADMIN_PASSWORD', secretRef: 'seed-superadmin-password' }
-            { name: 'BCRYPT_SALT_ROUNDS', value: '10' }
-          ]
-        }
-      ]
-    }
-  }
-}
-
-resource migrationJobAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(acr.id, migrationJob.id, 'AcrPull')
-  scope: acr
-  properties: {
-    principalId: migrationJob.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Outputs — feed these into GitHub Actions repo variables (see infra/README.md)
 // ---------------------------------------------------------------------------
 output acrLoginServer string = acr.properties.loginServer
 output acrName string = acr.name
 output backendAppName string = backendApp.name
 output frontendAppName string = frontendApp.name
-output migrationJobName string = migrationJob.name
-output backendFqdn string = backendApp.properties.configuration.ingress.fqdn
-output frontendFqdn string = frontendApp.properties.configuration.ingress.fqdn
-output backendApiBaseUrl string = 'https://${backendApp.properties.configuration.ingress.fqdn}/api/v1'
+output backendHostname string = backendApp.properties.defaultHostName
+output frontendHostname string = frontendApp.properties.defaultHostName
+output backendApiBaseUrl string = 'https://${backendApp.properties.defaultHostName}/api/v1'
 output postgresFqdn string = postgres.properties.fullyQualifiedDomainName

@@ -9,27 +9,37 @@
 #
 # What this does:
 #   1. Creates the resource group.
-#   2. Deploys infra/main.bicep (ACR, Postgres Flexible Server, Container
-#      Apps Environment, backend/frontend apps on a placeholder image, the
-#      migration job).
+#   2. Deploys infra/main.bicep (ACR, Postgres Flexible Server, one App
+#      Service Plan hosting backend + frontend Web Apps for Containers on a
+#      placeholder image).
 #   3. Creates an Azure AD app registration + federated credential so GitHub
 #      Actions can authenticate via OIDC (no long-lived secret).
-#   4. Grants that app AcrPush on the registry and Container Apps Contributor
-#      on the resource group — the minimum needed to build/push images and
-#      update the running apps.
+#   4. Grants that app AcrPush on the registry and Website Contributor on the
+#      resource group — the minimum needed to build/push images and update
+#      the running Web Apps.
 #   5. Prints (and, if `gh` is available, pushes) the GitHub secrets/variables
 #      the deploy workflow needs.
 #
 # Required environment variables (export before running, or edit below):
-#   GITHUB_REPO                e.g. "your-org/Dubai-Management-Project"
+#   GITHUB_REPO                e.g. "your-org/Donation-Management-Project"
 #   POSTGRES_ADMIN_PASSWORD    strong password for the Postgres admin login
 #   JWT_SECRET                 >=16 chars, random
 #   SEED_SUPERADMIN_PASSWORD   initial superadmin login password
 #
 # Optional overrides:
-#   RESOURCE_GROUP   (default: rg-donation-platform)
-#   LOCATION         (default: centralindia)
-#   NAME_PREFIX      (default: donation)
+#   RESOURCE_GROUP      (default: rg-donation-platform)
+#   LOCATION            (default: centralindia — used for ACR + Postgres.
+#                        South India is offer-restricted for Postgres
+#                        Flexible Server on this subscription; Central India
+#                        is not.)
+#   APP_SERVICE_LOCATION (default: same as LOCATION — override independently
+#                        if the App Service Plan hits a transient regional
+#                        capacity error like "No available instances to
+#                        satisfy this request"; Postgres works fine across
+#                        regions from App Service since it's a public SSL
+#                        endpoint, so e.g. LOCATION=centralindia +
+#                        APP_SERVICE_LOCATION=southindia is a valid split)
+#   NAME_PREFIX         (default: donation)
 
 set -euo pipefail
 
@@ -40,17 +50,34 @@ set -euo pipefail
 
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-donation-platform}"
 LOCATION="${LOCATION:-centralindia}"
+APP_SERVICE_LOCATION="${APP_SERVICE_LOCATION:-$LOCATION}"
 NAME_PREFIX="${NAME_PREFIX:-donation}"
 APP_DISPLAY_NAME="gh-oidc-${NAME_PREFIX}-deploy"
 
+echo "== 0/5: Resource provider registration (no-op if already registered) =="
+for ns in Microsoft.Web Microsoft.DBforPostgreSQL Microsoft.ContainerRegistry; do
+  az provider register --namespace "$ns" --only-show-errors -o none
+done
+
 echo "== 1/5: Resource group =="
-az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --only-show-errors -o none
+if az group show --name "$RESOURCE_GROUP" --only-show-errors -o none 2>/dev/null; then
+  EXISTING_LOCATION=$(az group show --name "$RESOURCE_GROUP" --query location -o tsv --only-show-errors)
+  if [ "$EXISTING_LOCATION" != "$LOCATION" ]; then
+    echo "NOTE: $RESOURCE_GROUP already exists in '$EXISTING_LOCATION', not '$LOCATION'."
+    echo "The resource group's own location is just metadata — resources below"
+    echo "still deploy to \$LOCATION via an explicit Bicep parameter — so this is safe to continue."
+  fi
+else
+  az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --only-show-errors -o none
+fi
 
 echo "== 2/5: Deploying infra/main.bicep =="
 DEPLOY_OUTPUT=$(az deployment group create \
   --resource-group "$RESOURCE_GROUP" \
   --template-file infra/main.bicep \
-  --parameters namePrefix="$NAME_PREFIX" \
+  --parameters location="$LOCATION" \
+               appServiceLocation="$APP_SERVICE_LOCATION" \
+               namePrefix="$NAME_PREFIX" \
                postgresAdminPassword="$POSTGRES_ADMIN_PASSWORD" \
                jwtSecret="$JWT_SECRET" \
                seedSuperadminPassword="$SEED_SUPERADMIN_PASSWORD" \
@@ -60,9 +87,8 @@ ACR_LOGIN_SERVER=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.acrLoginSe
 ACR_NAME=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.acrName.value')
 BACKEND_APP_NAME=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.backendAppName.value')
 FRONTEND_APP_NAME=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.frontendAppName.value')
-MIGRATION_JOB_NAME=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.migrationJobName.value')
 BACKEND_API_BASE_URL=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.backendApiBaseUrl.value')
-FRONTEND_FQDN=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.frontendFqdn.value')
+FRONTEND_HOSTNAME=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.frontendHostname.value')
 
 echo "== 3/5: Azure AD app registration + GitHub OIDC federated credential =="
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
@@ -96,7 +122,7 @@ az role assignment create --assignee-object-id "$SP_OBJECT_ID" --assignee-princi
   --role "AcrPush" --scope "$ACR_ID" --only-show-errors -o none 2>/dev/null || true
 
 az role assignment create --assignee-object-id "$SP_OBJECT_ID" --assignee-principal-type ServicePrincipal \
-  --role "Container Apps Contributor" --scope "$RG_ID" --only-show-errors -o none 2>/dev/null || true
+  --role "Website Contributor" --scope "$RG_ID" --only-show-errors -o none 2>/dev/null || true
 
 echo "== 5/5: GitHub secrets/variables =="
 declare -A GH_VARS=(
@@ -108,7 +134,6 @@ declare -A GH_VARS=(
   [ACR_NAME]="$ACR_NAME"
   [BACKEND_APP_NAME]="$BACKEND_APP_NAME"
   [FRONTEND_APP_NAME]="$FRONTEND_APP_NAME"
-  [MIGRATION_JOB_NAME]="$MIGRATION_JOB_NAME"
   [BACKEND_API_BASE_URL]="$BACKEND_API_BASE_URL"
 )
 
@@ -128,15 +153,16 @@ cat <<EOF
 
 Done.
 
-Frontend will be live at:  https://${FRONTEND_FQDN}
+Frontend will be live at:  https://${FRONTEND_HOSTNAME}
 Backend API base URL:      ${BACKEND_API_BASE_URL}
 
 Next steps:
   1. Push this repo to GitHub (if not already) with the .github/workflows/deploy.yml
      from this change included.
-  2. The first workflow run on main will build real images, push them, update
-     both Container Apps, and run the migration job — replacing the
-     mcr.microsoft.com/k8se/quickstart placeholder used to bootstrap.
+  2. The first workflow run on main will build real images, push them, and
+     update both Web Apps — replacing the mcr.microsoft.com/appsvc/staticsite
+     placeholder used to bootstrap. Migrations + seed run automatically on
+     backend container start.
   3. Log into the app with SEED_SUPERADMIN_EMAIL / the SEED_SUPERADMIN_PASSWORD
      you passed to this script, then change it from the UI.
 

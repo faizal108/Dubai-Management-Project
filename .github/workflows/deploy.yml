@@ -1,14 +1,24 @@
-name: Deploy to Azure Container Apps
+name: Deploy to Azure App Service
 
 # Builds only the side(s) that changed on every push to main, pushes to ACR,
-# updates the matching Container App, and (for backend changes) runs the
-# migrate+seed Container Apps Job. See infra/README.md for one-time setup —
-# this workflow assumes scripts/azure-bootstrap.sh has already run and the
-# repo variables it prints (AZURE_CLIENT_ID, ACR_LOGIN_SERVER, etc.) are set.
+# and updates the matching Web App for Containers. See infra/README.md for
+# one-time setup — this workflow assumes scripts/azure-bootstrap.sh has
+# already run and the repo variables it prints (AZURE_CLIENT_ID,
+# ACR_LOGIN_SERVER, etc.) are set.
+#
+# Backend migrations + seed run automatically on container start
+# (RUN_MIGRATIONS_ON_START / RUN_SEED_ON_START app settings, both
+# idempotent) — there's no separate migration step here. This workflow
+# restarts the backend after updating its image, then polls /api/v1/health
+# so a failed migration (crash-looping container) fails the deploy instead
+# of silently leaving the old version running.
 
 on:
   push:
     branches: [main]
+  workflow_dispatch: # manual "Run workflow" button — always builds/deploys both sides,
+    # bypassing the path filter below. Useful for the first-ever deploy (replacing
+    # the placeholder image) or to force a redeploy with no code change.
 
 # Only one deploy in flight at a time; never cancel a deploy mid-flight.
 concurrency:
@@ -38,7 +48,7 @@ jobs:
 
   deploy-backend:
     needs: detect-changes
-    if: needs.detect-changes.outputs.backend == 'true'
+    if: needs.detect-changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -61,50 +71,35 @@ jobs:
           docker push "$IMAGE"
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
-      - name: Update backend Container App
+      - name: Update backend Web App image
         run: |
-          az containerapp update \
+          az webapp config container set \
             --name "${{ vars.BACKEND_APP_NAME }}" \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --image "$IMAGE"
+            --docker-custom-image-name "$IMAGE"
+          az webapp restart \
+            --name "${{ vars.BACKEND_APP_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
 
-      - name: Run migration job (prisma migrate deploy && seed)
+      - name: Wait for healthy backend (migrations run on this restart)
         run: |
-          az containerapp job update \
-            --name "${{ vars.MIGRATION_JOB_NAME }}" \
-            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --image "$IMAGE"
-
-          EXECUTION_NAME=$(az containerapp job start \
-            --name "${{ vars.MIGRATION_JOB_NAME }}" \
-            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --query name -o tsv)
-
-          echo "Waiting on migration job execution: $EXECUTION_NAME"
-          # Poll the execution list rather than a single-execution "show" command —
-          # more robust against exact-flag-name drift across az cli versions.
+          URL="${{ vars.BACKEND_API_BASE_URL }}/health"
+          echo "Polling $URL"
           for i in $(seq 1 30); do
-            STATUS=$(az containerapp job execution list \
-              --name "${{ vars.MIGRATION_JOB_NAME }}" \
-              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-              --query "[?name=='$EXECUTION_NAME'].properties.status | [0]" -o tsv)
-            echo "  status: $STATUS"
-            if [ "$STATUS" = "Succeeded" ]; then
+            if curl -sf "$URL" >/dev/null; then
+              echo "Backend healthy."
               exit 0
             fi
-            if [ "$STATUS" = "Failed" ]; then
-              echo "Migration job failed. Check logs in the Azure Portal (Container Apps > ${{ vars.MIGRATION_JOB_NAME }} > Execution history) or via:"
-              echo "  az containerapp job logs show --name ${{ vars.MIGRATION_JOB_NAME }} --resource-group ${{ vars.AZURE_RESOURCE_GROUP }}"
-              exit 1
-            fi
+            echo "  not ready yet ($i/30)"
             sleep 10
           done
-          echo "Timed out waiting for migration job to finish."
+          echo "Backend did not become healthy in time — check migration/startup logs:"
+          echo "  az webapp log tail --name ${{ vars.BACKEND_APP_NAME }} --resource-group ${{ vars.AZURE_RESOURCE_GROUP }}"
           exit 1
 
   deploy-frontend:
     needs: detect-changes
-    if: needs.detect-changes.outputs.frontend == 'true'
+    if: needs.detect-changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -129,9 +124,12 @@ jobs:
           docker push "$IMAGE"
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
-      - name: Update frontend Container App
+      - name: Update frontend Web App image
         run: |
-          az containerapp update \
+          az webapp config container set \
             --name "${{ vars.FRONTEND_APP_NAME }}" \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --image "$IMAGE"
+            --docker-custom-image-name "$IMAGE"
+          az webapp restart \
+            --name "${{ vars.FRONTEND_APP_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
