@@ -1,0 +1,137 @@
+name: Deploy to Azure Container Apps
+
+# Builds only the side(s) that changed on every push to main, pushes to ACR,
+# updates the matching Container App, and (for backend changes) runs the
+# migrate+seed Container Apps Job. See infra/README.md for one-time setup —
+# this workflow assumes scripts/azure-bootstrap.sh has already run and the
+# repo variables it prints (AZURE_CLIENT_ID, ACR_LOGIN_SERVER, etc.) are set.
+
+on:
+  push:
+    branches: [main]
+
+# Only one deploy in flight at a time; never cancel a deploy mid-flight.
+concurrency:
+  group: azure-deploy-main
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # required for Azure OIDC login
+  contents: read
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'server/**'
+            frontend:
+              - 'cms/**'
+
+  deploy-backend:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+
+      - name: Build & push backend image
+        run: |
+          IMAGE="${{ vars.ACR_LOGIN_SERVER }}/donation-backend:${{ github.sha }}"
+          docker build -t "$IMAGE" ./server
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Update backend Container App
+        run: |
+          az containerapp update \
+            --name "${{ vars.BACKEND_APP_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --image "$IMAGE"
+
+      - name: Run migration job (prisma migrate deploy && seed)
+        run: |
+          az containerapp job update \
+            --name "${{ vars.MIGRATION_JOB_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --image "$IMAGE"
+
+          EXECUTION_NAME=$(az containerapp job start \
+            --name "${{ vars.MIGRATION_JOB_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query name -o tsv)
+
+          echo "Waiting on migration job execution: $EXECUTION_NAME"
+          # Poll the execution list rather than a single-execution "show" command —
+          # more robust against exact-flag-name drift across az cli versions.
+          for i in $(seq 1 30); do
+            STATUS=$(az containerapp job execution list \
+              --name "${{ vars.MIGRATION_JOB_NAME }}" \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --query "[?name=='$EXECUTION_NAME'].properties.status | [0]" -o tsv)
+            echo "  status: $STATUS"
+            if [ "$STATUS" = "Succeeded" ]; then
+              exit 0
+            fi
+            if [ "$STATUS" = "Failed" ]; then
+              echo "Migration job failed. Check logs in the Azure Portal (Container Apps > ${{ vars.MIGRATION_JOB_NAME }} > Execution history) or via:"
+              echo "  az containerapp job logs show --name ${{ vars.MIGRATION_JOB_NAME }} --resource-group ${{ vars.AZURE_RESOURCE_GROUP }}"
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for migration job to finish."
+          exit 1
+
+  deploy-frontend:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+
+      - name: Build & push frontend image
+        run: |
+          IMAGE="${{ vars.ACR_LOGIN_SERVER }}/donation-frontend:${{ github.sha }}"
+          docker build \
+            --build-arg VITE_API_BASE_URL="${{ vars.BACKEND_API_BASE_URL }}" \
+            -t "$IMAGE" ./cms
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Update frontend Container App
+        run: |
+          az containerapp update \
+            --name "${{ vars.FRONTEND_APP_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --image "$IMAGE"
