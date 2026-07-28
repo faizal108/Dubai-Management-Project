@@ -6,7 +6,14 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
-import { PlusIcon, PencilIcon, TrashIcon, CubeIcon } from "@heroicons/react/24/outline";
+import {
+  PlusIcon,
+  PencilIcon,
+  TrashIcon,
+  CubeIcon,
+  PrinterIcon,
+  ArrowDownTrayIcon,
+} from "@heroicons/react/24/outline";
 
 import {
   listOtherIncome,
@@ -16,7 +23,8 @@ import {
 } from "../api";
 import { listCategories } from "../../categories/api";
 import { listActivities } from "../../activities/api";
-import { listFoundations } from "../../foundations/api";
+import { listFoundations, getMyFoundation } from "../../foundations/api";
+import { printOtherIncomeReceipt, saveOtherIncomeReceiptPdf } from "../lib/receiptTemplate";
 import CategorySelect from "../../categories/components/CategorySelect";
 import { useAuth } from "../../../context/AuthContext";
 import { usePermissions } from "../../../hooks/usePermissions";
@@ -96,8 +104,46 @@ export default function ManageOtherIncome() {
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [foundation, setFoundation] = useState(null);
+  const [printingId, setPrintingId] = useState(null);
 
   const scoped = isSuperadmin && selectedFoundationId ? selectedFoundationId : undefined;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getMyFoundation();
+        if (!cancelled) setFoundation(res?.foundation ?? res ?? null);
+      } catch (err) {
+        console.warn("getMyFoundation failed:", err?.apiError?.message ?? err?.message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handlePrint = async (r) => {
+    setPrintingId(r.id);
+    try {
+      await printOtherIncomeReceipt(r, foundation);
+    } finally {
+      setPrintingId(null);
+    }
+  };
+
+  const handleDownloadPdf = async (r) => {
+    setPrintingId(r.id);
+    try {
+      await saveOtherIncomeReceiptPdf(r, foundation);
+    } catch (err) {
+      console.error("Save in-kind receipt PDF error:", err);
+      toast.error("Failed to generate PDF.");
+    } finally {
+      setPrintingId(null);
+    }
+  };
 
   useEffect(() => {
     if (!isSuperadmin) return;
@@ -304,6 +350,18 @@ export default function ManageOtherIncome() {
       { key: "activity", header: "Activity", cell: (r) => r.activityTitle || "—" },
       actionsColumn({
         items: (r) => [
+          {
+            label: "Print Receipt",
+            icon: <PrinterIcon className="h-4 w-4" />,
+            onClick: () => handlePrint(r),
+            disabled: printingId === r.id,
+          },
+          {
+            label: "Download PDF",
+            icon: <ArrowDownTrayIcon className="h-4 w-4" />,
+            onClick: () => handleDownloadPdf(r),
+            disabled: printingId === r.id,
+          },
           { label: "Edit", icon: <PencilIcon className="h-4 w-4" />, onClick: () => openEdit(r), disabled: !canUpdate },
           {
             label: "Delete",
@@ -316,13 +374,13 @@ export default function ManageOtherIncome() {
       }),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canUpdate, canDelete]
+    [canUpdate, canDelete, printingId, foundation]
   );
 
   return (
     <div>
       <PageHeader
-        title="Other Income (in-kind)"
+        title="Other Donation (in-kind)"
         subtitle="Record non-cash contributions like goods and materials. These are tracked separately from money and never affect cash balances."
         actions={
           canCreate && (

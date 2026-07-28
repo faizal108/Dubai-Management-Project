@@ -90,7 +90,7 @@ export const PERMISSION_GROUPS = [
     ],
   },
   {
-    label: "Other Income (in-kind)",
+    label: "Other Donation (in-kind)",
     items: [
       { key: PERMISSIONS.OTHER_INCOME_CREATE, label: "Add in-kind receipts" },
       { key: PERMISSIONS.OTHER_INCOME_UPDATE, label: "Edit in-kind receipts" },

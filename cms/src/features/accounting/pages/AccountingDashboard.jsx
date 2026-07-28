@@ -160,7 +160,7 @@ const AccountingDashboard = () => {
           hint={`${bank.accounts?.length ?? 0} bank accounts`}
         />
         <StatTile
-          title="Other Income (in-kind)"
+          title="Other Donation (in-kind)"
           value={otherIncome.estimatedValue}
           icon={CubeIcon}
           tone="info"

@@ -385,7 +385,7 @@ const Dashboard = () => {
         isCurrency: true,
       },
       {
-        title: "Other Income (in-kind)",
+        title: "Other Donation (in-kind)",
         value: s.otherIncome?.estimatedValue ?? 0,
         icon: CubeIcon,
         tone: "info",

@@ -42,7 +42,7 @@ import { EllipsisVerticalIcon, TagIcon } from "@heroicons/react/24/outline";
 const KINDS = [
   { key: "INCOME", label: "Income" },
   { key: "EXPENSE", label: "Expense" },
-  { key: "OTHER_INCOME", label: "Other Income" },
+  { key: "OTHER_INCOME", label: "Other Donation" },
 ];
 
 function CategoryTab({ kind, foundationId, canManage }) {

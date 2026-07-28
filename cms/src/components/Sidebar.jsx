@@ -4,14 +4,11 @@ import {
   UserPlusIcon,
   PlusCircleIcon,
   MagnifyingGlassIcon,
-  ArrowRightStartOnRectangleIcon,
-  UserCircleIcon,
   Bars3Icon,
   XMarkIcon,
   BuildingOffice2Icon,
   UsersIcon,
   ClipboardDocumentListIcon,
-  Cog6ToothIcon,
   IdentificationIcon,
   ChevronDownIcon,
   HeartIcon,
@@ -30,13 +27,11 @@ import {
   ArrowsRightLeftIcon,
   CubeIcon,
 } from "@heroicons/react/24/outline";
-import { useLocation, Link, useNavigate } from "react-router-dom";
+import { useLocation, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useFinancialYear } from "../context/FinancialYearContext";
 import { ROLES } from "../constants/roles";
 import { PERMISSIONS } from "../constants/permissions";
 import { usePermissions } from "../hooks/usePermissions";
-import FinancialYearSelect from "../features/financialYears/components/FinancialYearSelect";
 
 // Navigation tree. Each node is either a leaf `item` (with `path`) or a
 // `group` containing nested items. Visibility for items is gated on role +
@@ -90,7 +85,7 @@ const navTree = [
         role: [ROLES.ADMIN, ROLES.EMPLOYEE],
       },
       {
-        name: "Other Income",
+        name: "Other Donation",
         icon: <CubeIcon className="h-5 w-5" />,
         path: "/other-income",
         role: [ROLES.ADMIN, ROLES.SUPERADMIN, ROLES.EMPLOYEE],
@@ -144,7 +139,7 @@ const navTree = [
         perm: PERMISSIONS.DASHBOARD_VIEW,
       },
       {
-        name: "Other Income Ledger",
+        name: "Other Donation Ledger",
         icon: <CubeIcon className="h-5 w-5" />,
         path: "/accounting/other-income",
         role: [ROLES.ADMIN, ROLES.SUPERADMIN, ROLES.EMPLOYEE],
@@ -241,34 +236,12 @@ const navTree = [
   },
 ];
 
-const navItemsBottom = [
-  {
-    name: "Settings",
-    icon: <Cog6ToothIcon className="h-5 w-5" />,
-    path: "/settings",
-  },
-  {
-    name: "Profile",
-    icon: <UserCircleIcon className="h-5 w-5" />,
-    path: "/profile",
-  },
-  {
-    name: "Logout",
-    icon: <ArrowRightStartOnRectangleIcon className="h-5 w-5" />,
-    action: "logout",
-  },
-];
-
 const Sidebar = () => {
   const [isOpen, setIsOpen] = useState(true);
   const [openGroups, setOpenGroups] = useState({});
   const location = useLocation();
-  const { logout, user } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
   const { can } = usePermissions();
-  // Only pulled for the "hide when empty" gate below; FinancialYearSelect
-  // reads value + setter straight from the same context.
-  const { years: fyYears } = useFinancialYear();
 
   const isActive = (path) => location.pathname.startsWith(path);
 
@@ -307,12 +280,6 @@ const Sidebar = () => {
 
   const toggleGroup = (name) =>
     setOpenGroups((prev) => ({ ...prev, [name]: !prev[name] }));
-
-  function handleLogout(e) {
-    e.preventDefault();
-    logout();
-    navigate("/login");
-  }
 
   const navLinkClass = (active, { nested = false } = {}) =>
     [
@@ -364,21 +331,6 @@ const Sidebar = () => {
           )}
         </button>
       </div>
-
-      {/* Financial-year selector. Only renders in the expanded view, and only
-          when the caller actually has years available (SUPERADMIN without a
-          scoped foundation will see nothing here — foundation-level tools
-          drive their own FY resolution). Selection is persisted in-context
-          and consumed by dashboard tiles + FY-scoped queries. Uses the shared
-          FinancialYearSelect so the pop-open panel matches BankAccountSelect. */}
-      {isOpen && fyYears.length > 0 && (
-        <div className="px-3 pt-3">
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Financial Year
-          </label>
-          <FinancialYearSelect />
-        </div>
-      )}
 
       {/* Top Links */}
       <nav className="flex-1 overflow-y-auto px-3 py-3">
@@ -458,59 +410,6 @@ const Sidebar = () => {
           </ul>
         )}
       </nav>
-
-      {/* Bottom Links */}
-      <div className="border-t border-border px-3 py-3">
-        <ul className="flex flex-col gap-0.5">
-          {navItemsBottom.map(({ name, icon, path, action }) => {
-            const active = path ? isActive(path) : false;
-            if (action === "logout") {
-              return (
-                <li key={name}>
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className={`w-full ${navLinkClass(false)}`}
-                    title={!isOpen ? name : undefined}
-                  >
-                    {icon}
-                    {isOpen && <span>{name}</span>}
-                  </button>
-                </li>
-              );
-            }
-            return (
-              <li key={name}>
-                <Link
-                  to={path}
-                  className={navLinkClass(active)}
-                  title={!isOpen ? name : undefined}
-                >
-                  {icon}
-                  {isOpen && <span>{name}</span>}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-
-        {/* User footer */}
-        {isOpen && user && (
-          <div className="mt-3 flex items-center gap-3 rounded-md border border-border bg-background px-3 py-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-              {(user.name || user.email || "?").slice(0, 1).toUpperCase()}
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-foreground">
-                {user.name || user.email}
-              </p>
-              <p className="truncate text-xs text-muted-foreground">
-                {user.role}
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
     </aside>
   );
 };

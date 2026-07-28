@@ -118,7 +118,7 @@ const OtherIncomeLedger = () => {
       <Card>
         <CardBody>
           <div className="mb-3 flex flex-wrap items-baseline gap-3">
-            <h2 className="text-base font-semibold text-foreground">Other Income (in-kind)</h2>
+            <h2 className="text-base font-semibold text-foreground">Other Donation (in-kind)</h2>
             <span className="text-sm text-muted-foreground">
               {data.total} receipt(s) · Est. value{" "}
               <span className="font-semibold tabular-nums text-foreground">
